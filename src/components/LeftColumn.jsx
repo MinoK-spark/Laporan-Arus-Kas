@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Target, PlusCircle, ArrowDownLeft, ArrowUpRight, CheckCircle2, Building, DollarSign } from 'lucide-react';
-import { formatRupiah, parseRupiahInput } from '../utils/formatters';
+import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
 
 export const LeftColumn = ({ banks, onAddBank, onAddForecast, forecastsCount }) => {
   const [bankName, setBankName] = useState('');
@@ -8,17 +8,12 @@ export const LeftColumn = ({ banks, onAddBank, onAddForecast, forecastsCount }) 
   const [isBankSuccess, setIsBankSuccess] = useState(false);
 
   const [forecastBankId, setForecastBankId] = useState(banks[0]?.id || '');
-  const [tipe, setTipe] = useState('pengeluaran');
+  const [tipe, setTipe] = useState('pemasukan');
   const [deskripsi, setDeskripsi] = useState('');
   const [nominalDisplay, setNominalDisplay] = useState('');
   const [isForecastSuccess, setIsForecastSuccess] = useState(false);
 
-  const handleBankSaldoChange = (e) => {
-    const raw = e.target.value;
-    const num = parseRupiahInput(raw);
-    if (num === 0 && raw === '') setBankSaldoDisplay('');
-    else setBankSaldoDisplay(new Intl.NumberFormat('id-ID').format(num));
-  };
+  const handleBankSaldoChange = (e) => { setBankSaldoDisplay(formatNominalInput(e.target.value)); };
 
   const handleForecastNominalChange = (e) => {
     const raw = e.target.value;

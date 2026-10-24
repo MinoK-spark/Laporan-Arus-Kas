@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Target, PlusCircle, ArrowDownLeft, ArrowUpRight, CheckCircle2 } from 'lucide-react';
-import { formatRupiah, parseRupiahInput } from '../utils/formatters';
+import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
 
 export const ForecastForm = ({ onAddForecast, forecastsCount }) => {
-  const [tipe, setTipe] = useState('pengeluaran'); // default or pemasukan
+  const [tipe, setTipe] = useState('pemasukan'); // default or pemasukan
   const [deskripsi, setDeskripsi] = useState('');
   const [nominalDisplay, setNominalDisplay] = useState('');
   const [kategori, setKategori] = useState('Operasional');

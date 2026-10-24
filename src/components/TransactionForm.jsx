@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Receipt, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Download } from 'lucide-react';
-import { formatRupiah, parseRupiahInput } from '../utils/formatters';
+import { Receipt, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet } from 'lucide-react';
+import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
+import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 
-export const TransactionForm = ({ banks, forecasts, transactions, onAddTransaction }) => {
+export const TransactionForm = ({ banks, forecasts, transactions, onAddTransaction, onAddTransactions, currentUser }) => {
+  const isViewer = currentUser?.role === 'viewer';
+
   const [bankId, setBankId] = useState(banks[0]?.id || '');
-  const [tipe, setTipe] = useState('pengeluaran'); // IN or OUT
+  const [tipe, setTipe] = useState('pemasukan'); // IN or OUT
   const [periodeBulan, setPeriodeBulan] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -25,20 +28,11 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
   // Filter plans based on the chosen toggle AND periodeBulan AND ensure it hasn't been used yet
   const availablePlans = forecasts.filter((f) => {
-    // 1. Filter by Tipe
     if (f.tipe !== tipe) return false;
-    
-    // 2. Filter by Periode Bulan (only show plans for this selected month)
-    if (f.periodeBulan && f.periodeBulan !== periodeBulan) return false;
-
-    // 3. Prevent reuse: if a transaction already exists with this planId, filter it out
-    const isUsed = transactions.some((t) => t.planId === f.id);
-    if (isUsed) return false;
-
+    if (periodeBulan && f.periodeBulan && f.periodeBulan !== periodeBulan) return false;
     return true;
   });
 
-  // If the selected plan does not belong to the available filtered combo, reset to 'unplanned'
   useEffect(() => {
     if (planId !== 'unplanned') {
       const exists = availablePlans.some((p) => p.id === planId);
@@ -46,132 +40,266 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
         setPlanId('unplanned');
       }
     }
-  }, [tipe, periodeBulan, availablePlans, planId]);
+  }, [tipe, bankId, periodeBulan, availablePlans, planId]);
 
   const handleNominalChange = (e) => {
     const raw = e.target.value;
-    const num = parseRupiahInput(raw);
-    if (num === 0 && raw === '') setNominalDisplay('');
-    else setNominalDisplay(new Intl.NumberFormat('id-ID').format(num));
+    setNominalDisplay(formatNominalInput(raw));
   };
 
-  const selectedPlan = forecasts.find((f) => f.id === planId);
-  
-  // Realisasi of selected plan (should be 0 since we only show unused, but keeping logic just in case)
-  const selectedPlanActual = selectedPlan
-    ? transactions.filter((t) => t.planId === selectedPlan.id).reduce((sum, t) => sum + t.nominal, 0)
-    : 0;
+  const handleDownloadTemplate = () => {
+    const sampleBank = banks[0]?.name || 'Bank BCA';
+    const sampleKas = banks.find(b => b.tipeAkun === 'kas')?.name || 'Kas Operasional';
+    const sampleForecastOut = forecasts.find(f => f.tipe === 'pengeluaran')?.deskripsi || 'Pembelian Alat & Operasional Kantor';
+    const sampleForecastIn = forecasts.find(f => f.tipe === 'pemasukan')?.deskripsi || 'Termin 1 Pembayaran Klien';
+
+    const templateData = [
+      {
+        "Tanggal": "2026-10-20",
+        "Deskripsi": "Pembelian ATK & Keperluan Kantor",
+        "Nominal": 250000,
+        "Jenis Mutasi": "pengeluaran",
+        "Nama Bank / Akun": sampleKas,
+        "Rencana Forecast": sampleForecastOut
+      },
+      {
+        "Tanggal": "2026-10-21",
+        "Deskripsi": "Penerimaan Pelunasan Invoice Client A",
+        "Nominal": 15000000,
+        "Jenis Mutasi": "pemasukan",
+        "Nama Bank / Akun": sampleBank,
+        "Rencana Forecast": sampleForecastIn
+      },
+      {
+        "Tanggal": "2026-10-22",
+        "Deskripsi": "Biaya Parkir & Kurir Mendadak",
+        "Nominal": 50000,
+        "Jenis Mutasi": "pengeluaran",
+        "Nama Bank / Akun": sampleKas,
+        "Rencana Forecast": "Tanpa Forecast"
+      }
+    ];
+    downloadExcel(templateData, 'Template_Import_Mutasi.xlsx', 'Mutasi Kas & Bank');
+  };
+
+  const handleImportExcel = async (e) => {
+    if (isViewer) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const rows = await parseExcelFile(file);
+      const newTransactionsToAdd = [];
+      let duplicateCounter = 0;
+
+      rows.forEach((row, index) => {
+        const desk = getRowValue(row, 'Deskripsi', 'Keterangan', 'Uraian', 'Catatan', 'Deskripsi Transaksi');
+        const nominalRaw = getRowValue(row, 'Nominal', 'Jumlah', 'Nilai', 'Total');
+        const tglRaw = getRowValue(row, 'Tanggal', 'Tgl', 'Tanggal Transaksi', 'Date');
+        const tipeVal = getRowValue(row, 'Jenis Mutasi', 'Tipe', 'Jenis', 'Mutasi', 'Kategori');
+        const namaBank = getRowValue(row, 'Nama Bank / Akun', 'Nama Bank', 'Bank', 'Nama Akun', 'Akun', 'Rekening');
+        const forecastVal = getRowValue(row, 'Rencana Forecast', 'Forecast / Rencana', 'Forecast', 'Rencana', 'Target Forecast', 'Nama Forecast', 'Kategori Forecast', 'Plan');
+
+        const cleanNom = parseRupiahInput(nominalRaw) || 0;
+        const cleanTipe = String(tipeVal).trim().toLowerCase().includes('masuk') ? 'pemasukan' : 'pengeluaran';
+        const cleanTgl = normalizeExcelDate(tglRaw);
+
+        // Match bank by name or fallback to selected bank
+        const matchedBank = banks.find(b => 
+          b.name.toLowerCase() === String(namaBank).trim().toLowerCase() ||
+          b.id === String(namaBank).trim()
+        );
+        const targetBankId = matchedBank ? matchedBank.id : (bankId || banks[0]?.id);
+
+        // Match forecast / target plan
+        let targetPlanId = 'unplanned';
+        if (forecastVal && String(forecastVal).trim()) {
+          const cleanFVal = String(forecastVal).trim().toLowerCase();
+          const isUnplannedKeyword = ['unplanned', '-', 'none', 'tanpa rencana', 'tanpa forecast', 'tidak ada', 'diluar forecast'].includes(cleanFVal);
+          if (!isUnplannedKeyword) {
+            const matchedForecast = forecasts.find(f => {
+              const fDesc = (f.deskripsi || '').toLowerCase().trim();
+              const fId = (f.id || '').toLowerCase().trim();
+              return fId === cleanFVal ||
+                     fDesc === cleanFVal ||
+                     cleanFVal.includes(fDesc) ||
+                     fDesc.includes(cleanFVal);
+            });
+            if (matchedForecast) {
+              targetPlanId = matchedForecast.id;
+            }
+          }
+        }
+
+        if (desk && String(desk).trim() && cleanNom > 0) {
+          const cleanDeskStr = String(desk).trim();
+          const normDate = (d) => (d ? String(d).trim().substring(0, 10) : '');
+
+          // Duplicate detection against existing data
+          // Parameters: tanggal, nama rekening, nama / deskripsi transaksi, nominal
+          const isDuplicateInDb = (transactions || []).some(existingTx => {
+            const sameDate = normDate(existingTx.tanggal) === normDate(cleanTgl);
+            const sameNominal = Math.abs(Number(existingTx.nominal || 0) - cleanNom) < 0.01;
+            const sameDesc = String(existingTx.deskripsi || '').trim().toLowerCase() === cleanDeskStr.toLowerCase();
+            
+            const existingBankName = banks.find(b => b.id === existingTx.bankId)?.name?.toLowerCase()?.trim();
+            const currentBankName = banks.find(b => b.id === targetBankId)?.name?.toLowerCase()?.trim();
+            const sameBank = existingTx.bankId === targetBankId || (existingBankName && currentBankName && existingBankName === currentBankName);
+
+            return sameDate && sameNominal && sameDesc && sameBank;
+          });
+
+          // Duplicate detection within the current imported batch
+          const isDuplicateInBatch = newTransactionsToAdd.some(prevTx => {
+            const sameDate = normDate(prevTx.tanggal) === normDate(cleanTgl);
+            const sameNominal = Math.abs(Number(prevTx.nominal || 0) - cleanNom) < 0.01;
+            const sameDesc = String(prevTx.deskripsi || '').trim().toLowerCase() === cleanDeskStr.toLowerCase();
+            const sameBank = prevTx.bankId === targetBankId;
+            return sameDate && sameNominal && sameDesc && sameBank;
+          });
+
+          const isDuplicate = isDuplicateInDb || isDuplicateInBatch;
+          if (isDuplicate) duplicateCounter++;
+
+          newTransactionsToAdd.push({
+            id: `tx-imp-${Date.now()}-${index}`,
+            bankId: targetBankId,
+            tipe: cleanTipe,
+            planId: targetPlanId,
+            deskripsi: cleanDeskStr,
+            nominal: cleanNom,
+            tanggal: cleanTgl,
+            isDuplicate: Boolean(isDuplicate),
+            duplicateReason: isDuplicate ? 'Terdeteksi kesamaan tanggal, rekening, deskripsi, dan nominal dengan data yang ada' : null
+          });
+        }
+      });
+
+      if (newTransactionsToAdd.length > 0) {
+        if (onAddTransactions) {
+          onAddTransactions(newTransactionsToAdd);
+        } else {
+          newTransactionsToAdd.forEach(tx => onAddTransaction(tx));
+        }
+        let msg = `Berhasil mengimpor ${newTransactionsToAdd.length} mutasi kas dari file Excel!`;
+        if (duplicateCounter > 0) {
+          msg += `\n\nPerhatian: ${duplicateCounter} transaksi terdeteksi duplikat (tanggal, rekening, deskripsi & nominal sama). Data tetap dimasukkan dengan label/penanda [Duplikat].`;
+        }
+        alert(msg);
+      } else {
+        alert('Tidak ada transaksi valid yang ditemukan dalam file Excel. Silakan periksa kolom sesuai template.');
+      }
+    } catch (err) {
+      alert('Gagal membaca file Excel: ' + err.message);
+    } finally {
+      if (e.target) e.target.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const cleanNominal = parseRupiahInput(nominalDisplay);
+    if (isViewer) return;
+    const num = parseRupiahInput(nominalDisplay);
+    if (num <= 0) {
+      alert('Nominal harus lebih dari 0');
+      return;
+    }
 
-    if (!bankId) return alert('Silakan pilih Bank terlebih dahulu.');
-    if (!deskripsi.trim()) return alert('Mohon masukkan deskripsi.');
-    if (!cleanNominal || cleanNominal <= 0) return alert('Nominal harus > 0.');
+    const cleanDeskStr = deskripsi.trim();
+    const targetBankId = bankId || banks[0]?.id;
+    const normDate = (d) => (d ? String(d).trim().substring(0, 10) : '');
 
-    const defaultRef = buktiRef.trim() || (tipe === 'pemasukan' ? `BKM-${Date.now().toString().slice(-4)}` : `BKK-${Date.now().toString().slice(-4)}`);
+    // Duplicate detection against existing data
+    const isDuplicate = (transactions || []).some(existingTx => {
+      const sameDate = normDate(existingTx.tanggal) === normDate(tanggal);
+      const sameNominal = Math.abs(Number(existingTx.nominal || 0) - num) < 0.01;
+      const sameDesc = String(existingTx.deskripsi || '').trim().toLowerCase() === cleanDeskStr.toLowerCase();
+      const existingBankName = banks.find(b => b.id === existingTx.bankId)?.name?.toLowerCase()?.trim();
+      const currentBankName = banks.find(b => b.id === targetBankId)?.name?.toLowerCase()?.trim();
+      const sameBank = existingTx.bankId === targetBankId || (existingBankName && currentBankName && existingBankName === currentBankName);
+      return sameDate && sameNominal && sameDesc && sameBank;
+    });
 
-    const newTransaction = {
-      id: `tx-${Date.now()}`,
-      tanggal: tanggal || new Date().toISOString().split('T')[0],
-      bankId,
+    const newTx = {
+      id: 'tx-' + Date.now(),
+      bankId: targetBankId,
       tipe,
-      deskripsi: deskripsi.trim(),
-      nominal: cleanNominal,
       planId,
-      buktiRef: defaultRef,
-      keterangan: planId === 'unplanned' ? 'Transaksi aktual tanpa alokasi rencana forecast (Anomali)' : `Realisasi rencana: ${selectedPlan?.deskripsi || '-'}`,
+      deskripsi: cleanDeskStr,
+      nominal: num,
+      tanggal,
+      buktiRef: buktiRef.trim(),
+      isDuplicate: Boolean(isDuplicate),
+      duplicateReason: isDuplicate ? 'Terdeteksi kesamaan tanggal, rekening, deskripsi, dan nominal dengan data yang ada' : null
     };
 
-    onAddTransaction(newTransaction);
+    onAddTransaction(newTx);
     setDeskripsi('');
     setNominalDisplay('');
     setBuktiRef('');
-    setPlanId('unplanned'); // Reset to unplanned after success to prevent attempting to reuse
     setIsSuccess(true);
-    setTimeout(() => setIsSuccess(false), 2500);
+    setTimeout(() => setIsSuccess(false), 3000);
   };
 
-  const downloadTemplate = () => {
-    const csvContent = "Tipe,Deskripsi,Nominal,Tanggal\nPemasukan,Cair Termin 1,50000000,2026-10-01\nPengeluaran,Beli Material,10000000,2026-10-02";
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'Template_Import_Transaksi.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const selectedPlan = forecasts.find(f => f.id === planId);
 
-  const handleImportCSV = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (banks.length === 0) return alert('Buat bank terlebih dahulu sebelum import transaksi!');
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target.result;
-      const lines = text.split('\n');
-      let importedCount = 0;
-      
-      // format expected: tipe(pemasukan/pengeluaran), deskripsi, nominal, tanggal
-      lines.forEach((line, index) => {
-        if (index === 0) return; // skip header
-        if (!line.trim()) return;
-        
-        const [tipeCsv, descCsv, nominalCsv, tglCsv] = line.split(',');
-        if (tipeCsv && descCsv && nominalCsv) {
-          const t = tipeCsv.trim().toLowerCase();
-          const cleanTipe = (t === 'in' || t === 'pemasukan') ? 'pemasukan' : 'pengeluaran';
-          onAddTransaction({
-            id: `tx-imp-${Date.now()}-${index}`,
-            tanggal: tglCsv ? tglCsv.trim() : new Date().toISOString().split('T')[0],
-            bankId: bankId || banks[0].id, // fallback to currently selected bank
-            tipe: cleanTipe,
-            deskripsi: descCsv.trim(),
-            nominal: parseInt(nominalCsv.trim().replace(/[^\d]/g, ''), 10) || 0,
-            planId: 'unplanned',
-            buktiRef: `IMP-${Date.now().toString().slice(-4)}-${index}`,
-            keterangan: 'Hasil Import CSV (Anomali Default)',
-          });
-          importedCount++;
-        }
-      });
-      alert(`Berhasil mengimpor ${importedCount} transaksi ke rekening aktif!`);
-      e.target.value = '';
-    };
-    reader.readAsText(file);
-  };
+  // If the user has viewer / read-only role
+  if (isViewer) {
+    return (
+      <div className="bg-gradient-to-br from-slate-900 to-corporate-950 text-white rounded-2xl shadow-xl border border-corporate-800 p-6 flex flex-col items-center text-center">
+        <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center mb-3">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h3 className="text-base font-bold text-white">Mode Tamu Aktif (Akses Terbatas)</h3>
+        <p className="text-xs text-slate-300 max-w-md mt-1.5 leading-relaxed">
+          Formulir pencatatan mutasi kas dinonaktifkan untuk akun Tamu / Auditor Eksternal. Anda memiliki izin penuh untuk memantau ringkasan saldo, detail rekonsiliasi, dan mengunduh laporan PDF.
+        </p>
+        <div className="mt-4 inline-flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-300 border border-amber-800/50">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          Izin Pengguna: Lihat Saja (Read-Only)
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card p-5 flex flex-col h-full">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+    <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-6 flex flex-col justify-between">
+      
+      {/* Header Form */}
+      <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-100 gap-2">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-corporate-900 flex items-center justify-center text-white">
-            <Receipt className="w-5 h-5 text-amber-400" />
+          <div className="w-9 h-9 rounded-xl bg-corporate-900 text-white flex items-center justify-center shadow-md shrink-0">
+            <Receipt className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">Input Transaksi Harian</h2>
-            <p className="text-xs text-slate-500">Pencatatan mutasi kas (Kasir)</p>
+            <h3 className="text-base font-bold text-slate-900">Catat Mutasi Aktual</h3>
+            <p className="text-xs text-slate-500">Pencatatan realisasi kas masuk/keluar harian.</p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
           <button 
             type="button"
-            onClick={downloadTemplate}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-xl shadow-sm hover:bg-slate-50 transition-all"
+            onClick={handleDownloadTemplate}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl shadow-xs hover:bg-emerald-100 transition-all cursor-pointer"
+            title="Unduh Template Excel (.xlsx)"
           >
-            <Download className="w-3.5 h-3.5" /> Template CSV
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Template Excel
           </button>
-          <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImportExcel} 
+            accept=".xlsx, .xls, .csv" 
+            className="hidden" 
+          />
           <button 
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-corporate-700 bg-white border border-slate-200 rounded-xl shadow-sm hover:bg-slate-50 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-corporate-700 bg-white border border-slate-200 rounded-xl shadow-xs hover:bg-slate-50 transition-all cursor-pointer"
           >
-            <Upload className="w-3.5 h-3.5" /> Import CSV
+            <Upload className="w-3.5 h-3.5" /> Import Excel
           </button>
         </div>
       </div>
@@ -192,7 +320,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
           {/* Cascading 2: Pilih Bank */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">2. Pilih Rekening Bank</label>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">2. Pilih Rekening Bank / Kas</label>
             <select
               value={bankId}
               onChange={(e) => setBankId(e.target.value)}
@@ -200,7 +328,9 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
             >
               {banks.length === 0 && <option value="">-- Buat Bank Dulu --</option>}
               {banks.map(b => (
-                <option key={b.id} value={b.id}>{b.name}</option>
+                <option key={b.id} value={b.id}>
+                  {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
+                </option>
               ))}
             </select>
           </div>
@@ -212,14 +342,14 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
               <button
                 type="button"
                 onClick={() => setTipe('pemasukan')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${tipe === 'pemasukan' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${tipe === 'pemasukan' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
               >
                 <ArrowDownLeft className="w-4 h-4" /> Pemasukan
               </button>
               <button
                 type="button"
                 onClick={() => setTipe('pengeluaran')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${tipe === 'pengeluaran' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${tipe === 'pengeluaran' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
               >
                 <ArrowUpRight className="w-4 h-4" /> Pengeluaran
               </button>
@@ -318,7 +448,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
           )}
           <button
             type="submit"
-            className={`w-full py-3 rounded-xl text-sm font-bold text-white transition-all flex items-center justify-center gap-2 shadow-sm ${
+            className={`w-full py-3 rounded-xl text-sm font-bold text-white transition-all flex items-center justify-center gap-2 shadow-xs ${
               tipe === 'pemasukan' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-corporate-900 hover:bg-navy-950'
             }`}
           >
