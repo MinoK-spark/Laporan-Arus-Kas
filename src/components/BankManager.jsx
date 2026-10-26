@@ -449,113 +449,115 @@ export const BankManager = ({
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 ${isViewer ? 'lg:grid-cols-1' : 'lg:grid-cols-3'} gap-6`}>
+      <div className="space-y-6">
         
-        {/* Form Tambah Bank / Kas (Hanya untuk Admin / Non-Viewer) */}
+        {/* Form Tambah Bank / Kas (Diletakkan di Atas Daftar Rekening Bank & Kas) */}
         {!isViewer ? (
-          <div className="lg:col-span-1 bg-white rounded-2xl border border-slate-200/90 shadow-card p-5 h-fit">
-            <div className="flex items-center gap-2.5 pb-4 border-b border-slate-100">
-              <div className="w-9 h-9 rounded-xl bg-corporate-100 flex items-center justify-center">
-                {tipeAkun === 'kas' ? (
-                  <Wallet className="w-5 h-5 text-emerald-700" />
-                ) : (
-                  <Building className="w-5 h-5 text-corporate-700" />
-                )}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-card p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-corporate-100 flex items-center justify-center">
+                  {tipeAkun === 'kas' ? (
+                    <Wallet className="w-5 h-5 text-emerald-700" />
+                  ) : (
+                    <Building className="w-5 h-5 text-corporate-700" />
+                  )}
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 tracking-tight">
+                    {tipeAkun === 'kas' ? 'Tambah Akun Kas' : 'Tambah Rekening Bank'}
+                  </h2>
+                  <p className="text-xs text-slate-500">Daftarkan akun kas operasional atau rekening bank baru</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-900 tracking-tight">
-                  {tipeAkun === 'kas' ? 'Tambah Akun Kas' : 'Tambah Rekening Bank'}
-                </h2>
-                <p className="text-xs text-slate-500">Daftarkan akun kas operasional atau bank</p>
+
+              {/* Toggle Bank vs Kas */}
+              <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setTipeAkun('bank')}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    tipeAkun === 'bank'
+                      ? 'bg-corporate-700 text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <Building className="w-3.5 h-3.5" />
+                  <span>Rekening Bank</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipeAkun('kas')}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    tipeAkun === 'kas'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:bg-slate-200/70'
+                  }`}
+                >
+                  <Wallet className="w-3.5 h-3.5" />
+                  <span>Kas Tunai / Kecil</span>
+                </button>
               </div>
             </div>
 
             <form onSubmit={handleBankSubmit} className="mt-4 space-y-4">
-              {/* Pilihan Tipe Akun: Bank atau Kas */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Tipe Akun Keuangan
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setTipeAkun('bank')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all cursor-pointer ${
-                      tipeAkun === 'bank'
-                        ? 'bg-corporate-700 text-white border-corporate-700 shadow-xs'
-                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Building className="w-4 h-4" />
-                    <span>Rekening Bank</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTipeAkun('kas')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all cursor-pointer ${
-                      tipeAkun === 'kas'
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Wallet className="w-4 h-4" />
-                    <span>Kas Tunai / Kecil</span>
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  {tipeAkun === 'kas' ? 'Nama Akun Kas' : 'Nama Bank'}
-                </label>
-                <input
-                  type="text"
-                  value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
-                  placeholder={tipeAkun === 'kas' ? 'Contoh: Kas Kantor / Petty Cash' : 'Contoh: Bank BCA / Mandiri'}
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Saldo Awal
-                </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-500">Rp</span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    {tipeAkun === 'kas' ? 'Nama Akun Kas' : 'Nama Bank'}
+                  </label>
                   <input
                     type="text"
-                    value={bankSaldoDisplay}
-                    onChange={handleBankSaldoChange}
-                    placeholder="0"
-                    className="w-full pl-10 pr-3 py-2 text-sm font-mono-num font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    placeholder={tipeAkun === 'kas' ? 'Contoh: Kas Kantor / Petty Cash' : 'Contoh: Bank BCA / Mandiri'}
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 font-semibold"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Saldo Awal
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-500">Rp</span>
+                    <input
+                      type="text"
+                      value={bankSaldoDisplay}
+                      onChange={handleBankSaldoChange}
+                      placeholder="0"
+                      className="w-full pl-10 pr-3 py-2 text-sm font-mono-num font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 text-slate-900"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Tanggal Saldo Awal
+                  </label>
+                  <input
+                    type="date"
+                    value={tanggalSaldo}
+                    onChange={(e) => setTanggalSaldo(e.target.value)}
+                    className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 font-medium"
+                    required
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                  Tanggal Saldo Awal
-                </label>
-                <input
-                  type="date"
-                  value={tanggalSaldo}
-                  onChange={(e) => setTanggalSaldo(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500"
-                  required
-                />
-              </div>
-
-              <div className="pt-2">
-                {isBankSuccess && (
-                  <div className="mb-2 text-xs font-semibold text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="w-4 h-4" /> Akun berhasil ditambahkan!
-                  </div>
-                )}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  {isBankSuccess && (
+                    <div className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>{tipeAkun === 'kas' ? 'Akun kas' : 'Rekening bank'} berhasil didaftarkan!</span>
+                    </div>
+                  )}
+                </div>
                 <button 
                   type="submit" 
-                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-slate-800 hover:bg-slate-900 flex justify-center items-center gap-2 transition-all cursor-pointer shadow-sm"
+                  className="py-2.5 px-6 rounded-xl text-xs sm:text-sm font-bold text-white bg-corporate-900 hover:bg-navy-950 flex justify-center items-center gap-2 transition-all cursor-pointer shadow-sm active:scale-95 ml-auto"
                 >
                   <PlusCircle className="w-4 h-4" /> 
                   <span>{tipeAkun === 'kas' ? 'Tambah Akun Kas' : 'Tambah Rekening Bank'}</span>
@@ -570,8 +572,8 @@ export const BankManager = ({
           </div>
         )}
 
-        {/* List Bank & Kas */}
-        <div className={`${isViewer ? 'lg:col-span-1' : 'lg:col-span-2'} bg-white rounded-2xl border border-slate-200/90 shadow-card overflow-hidden`}>
+        {/* List Bank & Kas (Full Width di Bawah Form Tambah) */}
+        <div className="w-full bg-white rounded-2xl border border-slate-200/90 shadow-card overflow-hidden">
           
           {/* Header Action Bar */}
           <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3">
