@@ -1,5 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { 
+import {
+X,
+  ArrowUpDown,
+ 
   FileSpreadsheet, 
   ChevronDown, 
   ChevronRight, 
@@ -20,6 +23,7 @@ import {
 import { formatRupiah, parseRupiahInput, formatDateIndo } from '../utils/formatters';
 import { downloadExcel } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { EditTransactionModal } from './EditTransactionModal';
 
 export const ReconciliationTable = ({ 
   banks = [], 
@@ -38,6 +42,10 @@ export const ReconciliationTable = ({
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'pemasukan', 'pengeluaran', 'anomali'
   const [filterBankId, setFilterBankId] = useState('all');
   const [expandedPlans, setExpandedPlans] = useState({});
+  const [editingTx, setEditingTx] = useState(null);
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
+  const [sortDateOrder, setSortDateOrder] = useState('desc'); // 'desc' | 'asc'
 
   // Selection state
   const [selectedRowIds, setSelectedRowIds] = useState([]);
@@ -94,17 +102,17 @@ export const ReconciliationTable = ({
 
   const filteredForecasts = useMemo(() => {
     return forecasts.filter((f) => {
-      // HANYA TERISI JIKA DATA MUTASI DIINPUT:
-      const planTxList = planTransactionsMap[f.id] || [];
+      // HANYA TERISI JIKA DATA MUTASI DIINPUT SESUAI FILTER:
+      const planTxList = (planTransactionsMap[f.id] || []).filter(t => {
+        if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+        if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+        if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+        return true;
+      });
       if (planTxList.length === 0) return false;
 
       const matchesSearch = String(f.deskripsi || '').toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchesSearch) return false;
-      
-      if (filterBankId !== 'all') {
-         const hasTxInBank = planTxList.some(t => t.bankId === filterBankId);
-         if (!hasTxInBank) return false;
-      }
       
       if (activeTab === 'anomali') return false;
       if (activeTab === 'duplikat') {
@@ -115,38 +123,52 @@ export const ReconciliationTable = ({
       if (activeTab === 'pengeluaran' && f.tipe !== 'pengeluaran') return false;
       return true;
     });
-  }, [forecasts, planTransactionsMap, searchTerm, filterBankId, activeTab]);
+  }, [forecasts, planTransactionsMap, searchTerm, filterBankId, filterStartDate, filterEndDate, activeTab]);
 
   const filteredUnplanned = useMemo(() => {
     return unplannedTransactions.filter((t) => {
       const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchesSearch) return false;
       if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+      if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+      if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
       if (activeTab === 'duplikat' && !t.isDuplicate) return false;
       if (activeTab === 'pemasukan' && t.tipe !== 'pemasukan') return false;
       if (activeTab === 'pengeluaran' && t.tipe !== 'pengeluaran') return false;
       return true;
     });
-  }, [unplannedTransactions, searchTerm, filterBankId, activeTab]);
+  }, [unplannedTransactions, searchTerm, filterBankId, filterStartDate, filterEndDate, activeTab]);
 
-  // Default Sort: Pemasukan first, then Pengeluaran
+  // Sort: Berdasarkan Tanggal (sortDateOrder) dan Tipe Mutasi
   const sortedForecasts = useMemo(() => {
     return [...filteredForecasts].sort((a, b) => {
+      const subA = (planTransactionsMap[a.id] || []).map(t => t.tanggal || '').filter(Boolean).sort();
+      const subB = (planTransactionsMap[b.id] || []).map(t => t.tanggal || '').filter(Boolean).sort();
+      const dateA = subA.length > 0 ? (sortDateOrder === 'asc' ? subA[0] : subA[subA.length - 1]) : (a.periodeBulan || '');
+      const dateB = subB.length > 0 ? (sortDateOrder === 'asc' ? subB[0] : subB[subB.length - 1]) : (b.periodeBulan || '');
+      const dateCmp = sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+      if (dateCmp !== 0) return dateCmp;
+
       if (a.tipe !== b.tipe) {
         return a.tipe === 'pemasukan' ? -1 : 1;
       }
-      return (b.periodeBulan || '').localeCompare(a.periodeBulan || '');
+      return 0;
     });
-  }, [filteredForecasts]);
+  }, [filteredForecasts, planTransactionsMap, sortDateOrder]);
 
   const sortedUnplanned = useMemo(() => {
     return [...filteredUnplanned].sort((a, b) => {
+      const dateA = a.tanggal || '';
+      const dateB = b.tanggal || '';
+      const dateCmp = sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+      if (dateCmp !== 0) return dateCmp;
+
       if (a.tipe !== b.tipe) {
         return a.tipe === 'pemasukan' ? -1 : 1;
       }
-      return (b.tanggal || '').localeCompare(a.tanggal || '');
+      return 0;
     });
-  }, [filteredUnplanned]);
+  }, [filteredUnplanned, sortDateOrder]);
 
   // Calculate all selectable IDs currently visible
   const allVisibleIds = useMemo(() => {
@@ -388,16 +410,7 @@ export const ReconciliationTable = ({
   const handleEditTransaction = (e, tx) => {
     e.stopPropagation();
     if (isViewer) return;
-    const newDeskripsi = window.prompt('Ubah Deskripsi Transaksi:', tx.deskripsi);
-    if (newDeskripsi === null) return;
-    const newNominalRaw = window.prompt('Ubah Nominal Aktual (contoh: 1500000 atau 1500000,50):', tx.nominal);
-    if (newNominalRaw === null) return;
-    const newNominal = parseRupiahInput(newNominalRaw);
-  
-    onUpdateTransaction(tx.id, { 
-      deskripsi: newDeskripsi.trim() || tx.deskripsi, 
-      nominal: isNaN(newNominal) ? tx.nominal : newNominal 
-    });
+    setEditingTx(tx);
   };
 
   return (
@@ -418,6 +431,47 @@ export const ReconciliationTable = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Filter Rentang Tanggal */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-xl text-xs shadow-xs">
+              <Calendar className="w-3.5 h-3.5 text-corporate-600 shrink-0" />
+              <input
+                type="date"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                className="bg-transparent text-slate-700 outline-none cursor-pointer text-xs font-medium"
+                title="Filter Dari Tanggal"
+              />
+              <span className="text-slate-400 font-bold">-</span>
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                className="bg-transparent text-slate-700 outline-none cursor-pointer text-xs font-medium"
+                title="Filter Sampai Tanggal"
+              />
+              {(filterStartDate || filterEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); }}
+                  className="text-slate-400 hover:text-rose-600 p-0.5 rounded cursor-pointer transition-colors"
+                  title="Hapus Filter Tanggal"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Sort Tanggal Button */}
+            <button
+              type="button"
+              onClick={() => setSortDateOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer text-slate-700 shadow-xs"
+              title={`Urutan Tanggal: ${sortDateOrder === 'desc' ? 'Terbaru ke Terlama' : 'Terlama ke Terbaru'}`}
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-corporate-600" />
+              <span>Tanggal: <strong>{sortDateOrder === 'desc' ? 'Terbaru' : 'Terlama'}</strong></span>
+            </button>
+
             {/* Filter Bank/Kas */}
             <select
               value={filterBankId}
@@ -554,7 +608,17 @@ export const ReconciliationTable = ({
 
             {/* Render Rencana Forecast yang Memiliki Mutasi */}
             {activeTab !== 'anomali' && sortedForecasts.map((plan) => {
-              const subTransactions = planTransactionsMap[plan.id] || [];
+              const rawSub = (planTransactionsMap[plan.id] || []).filter(t => {
+                if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+                if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+                if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+                return true;
+              });
+              const subTransactions = [...rawSub].sort((a, b) => {
+                const dateA = a.tanggal || '';
+                const dateB = b.tanggal || '';
+                return sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+              });
               const actual = subTransactions.reduce((sum, t) => sum + t.nominal, 0);
               const isExpanded = !!expandedPlans[plan.id];
               const isPemasukan = plan.tipe === 'pemasukan';
@@ -790,6 +854,21 @@ export const ReconciliationTable = ({
       </div>
 
       {/* Modal Validasi Hapus Data (Tunggal & Batch) */}
+      {/* Popup Wizard Edit Transaksi */}
+      <EditTransactionModal
+        isOpen={Boolean(editingTx)}
+        onClose={() => setEditingTx(null)}
+        transaction={editingTx}
+        banks={banks}
+        forecasts={forecasts}
+        onSave={(updatedFields) => {
+          if (editingTx && onUpdateTransaction) {
+            onUpdateTransaction(editingTx.id, updatedFields);
+          }
+        }}
+        isViewer={isViewer}
+      />
+
       <ConfirmDeleteModal
         isOpen={deleteModalState.isOpen}
         onClose={() => setDeleteModalState({
