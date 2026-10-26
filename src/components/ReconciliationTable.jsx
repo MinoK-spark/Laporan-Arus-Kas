@@ -24,6 +24,7 @@ import { formatRupiah, parseRupiahInput, formatDateIndo } from '../utils/formatt
 import { downloadExcel } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { EditTransactionModal } from './EditTransactionModal';
+import { EditForecastModal } from './EditForecastModal';
 
 export const ReconciliationTable = ({ 
   banks = [], 
@@ -43,8 +44,23 @@ export const ReconciliationTable = ({
   const [filterBankId, setFilterBankId] = useState('all');
   const [expandedPlans, setExpandedPlans] = useState({});
   const [editingTx, setEditingTx] = useState(null);
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
+  const [editingForecast, setEditingForecast] = useState(null);
+
+  // Default range tanggal: awal periode (tgl 1 bulan ini) sampai hari ini
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const [filterStartDate, setFilterStartDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+
+  const [filterEndDate, setFilterEndDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const [sortDateOrder, setSortDateOrder] = useState('desc'); // 'desc' | 'asc'
 
   // Selection state
@@ -391,20 +407,109 @@ export const ReconciliationTable = ({
     downloadExcel(exportRows, 'Rekonsiliasi_Kas_Terpilih.xlsx', 'Rekonsiliasi Terpilih');
   };
 
+    const handleMonthChange = (e) => {
+    const val = e.target.value;
+    setSelectedMonth(val);
+    if (!val || val === 'all') {
+      setFilterStartDate('');
+      setFilterEndDate('');
+      return;
+    }
+    const [y, m] = val.split('-');
+    const startDate = `${y}-${m}-01`;
+    const now = new Date();
+    const isCurrentMonth = now.getFullYear() === Number(y) && (now.getMonth() + 1) === Number(m);
+    if (isCurrentMonth) {
+      setFilterStartDate(startDate);
+      setFilterEndDate(`${y}-${m}-${String(now.getDate()).padStart(2, '0')}`);
+    } else {
+      const lastDay = new Date(Number(y), Number(m), 0).getDate();
+      setFilterStartDate(startDate);
+      setFilterEndDate(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+    }
+  };
+
+  // Export seluruh data yang saat ini difilter di tabel rekonsiliasi
+  const handleExportAllData = () => {
+    const exportRows = [];
+    let no = 1;
+
+    // 1. Export forecast plans and sub-transactions
+    sortedForecasts.forEach(plan => {
+      const rawSub = (planTransactionsMap[plan.id] || []).filter(t => {
+        if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+        if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+        if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+        return true;
+      });
+      const subTx = [...rawSub].sort((a, b) => {
+        const dateA = a.tanggal || '';
+        const dateB = b.tanggal || '';
+        return sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+      });
+      const actual = subTx.reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const diff = plan.nominal - actual;
+
+      // Baris Rencana Forecast
+      exportRows.push({
+        "No": no++,
+        "Kategori": "Rencana Forecast",
+        "Deskripsi": plan.deskripsi,
+        "Jenis Mutasi": plan.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+        "Akun Bank / Kas": getBankName(plan.bankId),
+        "Tanggal / Periode": plan.periodeBulan ? formatMonthIndo(plan.periodeBulan) : "-",
+        "Target Nominal (Rp)": plan.nominal,
+        "Realisasi Aktual (Rp)": actual,
+        "Selisih (Rp)": diff,
+        "Status Duplikat": "-"
+      });
+
+      // Baris Sub-transaksi
+      subTx.forEach(tx => {
+        exportRows.push({
+          "No": "",
+          "Kategori": `  └ Realisasi (${plan.deskripsi})`,
+          "Deskripsi": tx.deskripsi,
+          "Jenis Mutasi": plan.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+          "Akun Bank / Kas": getBankName(tx.bankId),
+          "Tanggal / Periode": tx.tanggal ? formatDateIndo(tx.tanggal) : "-",
+          "Target Nominal (Rp)": "-",
+          "Realisasi Aktual (Rp)": tx.nominal,
+          "Selisih (Rp)": "-",
+          "Status Duplikat": tx.isDuplicate ? "Duplikat" : "Normal"
+        });
+      });
+    });
+
+    // 2. Export transaksi diluar forecast (anomali)
+    sortedUnplanned.forEach(tx => {
+      exportRows.push({
+        "No": no++,
+        "Kategori": "Transaksi Diluar Forecast (Anomali)",
+        "Deskripsi": tx.deskripsi,
+        "Jenis Mutasi": tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+        "Akun Bank / Kas": getBankName(tx.bankId),
+        "Tanggal / Periode": tx.tanggal ? formatDateIndo(tx.tanggal) : "-",
+        "Target Nominal (Rp)": 0,
+        "Realisasi Aktual (Rp)": tx.nominal,
+        "Selisih (Rp)": -tx.nominal,
+        "Status Duplikat": tx.isDuplicate ? "Duplikat" : "Normal"
+      });
+    });
+
+    if (exportRows.length === 0) {
+      return alert('Tidak ada data rekonsiliasi yang dapat diexport pada filter ini.');
+    }
+
+    const rangeStr = filterStartDate && filterEndDate ? `${filterStartDate}_sd_${filterEndDate}` : 'Semua_Periode';
+    downloadExcel(exportRows, `Laporan_Rekonsiliasi_Kas_${rangeStr}.xlsx`, 'Rekonsiliasi Kas');
+  };
+
   // Edit Handlers
   const handleEditForecast = (e, plan) => {
     e.stopPropagation();
     if (isViewer) return;
-    const newDeskripsi = window.prompt('Ubah Deskripsi Forecast:', plan.deskripsi);
-    if (newDeskripsi === null) return;
-    const newNominalRaw = window.prompt('Ubah Target Nominal (contoh: 1500000 atau 1500000,50):', plan.nominal);
-    if (newNominalRaw === null) return;
-    const newNominal = parseRupiahInput(newNominalRaw);
-    
-    onUpdateForecast(plan.id, { 
-      deskripsi: newDeskripsi.trim() || plan.deskripsi, 
-      nominal: isNaN(newNominal) ? plan.nominal : newNominal 
-    });
+    setEditingForecast(plan);
   };
 
   const handleEditTransaction = (e, tx) => {
@@ -431,28 +536,40 @@ export const ReconciliationTable = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Filter Rentang Tanggal */}
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-xl text-xs shadow-xs">
+            {/* Pilihan Periode Bulan */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs shadow-xs">
               <Calendar className="w-3.5 h-3.5 text-corporate-600 shrink-0" />
+              <span className="text-[10px] font-bold uppercase text-slate-500">Bulan:</span>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={handleMonthChange}
+                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer text-xs"
+                title="Pilih Bulan Periode"
+              />
+            </div>
+
+            {/* Filter Rentang Tanggal (Default: Awal Periode s/d Hari ini) */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-xl text-xs shadow-xs">
               <input
                 type="date"
                 value={filterStartDate}
-                onChange={(e) => setFilterStartDate(e.target.value)}
-                className="bg-transparent text-slate-700 outline-none cursor-pointer text-xs font-medium"
-                title="Filter Dari Tanggal"
+                onChange={(e) => { setFilterStartDate(e.target.value); setSelectedMonth(''); }}
+                className="bg-transparent text-slate-700 outline-none cursor-pointer text-xs font-semibold"
+                title="Tanggal Mulai"
               />
               <span className="text-slate-400 font-bold">-</span>
               <input
                 type="date"
                 value={filterEndDate}
-                onChange={(e) => setFilterEndDate(e.target.value)}
-                className="bg-transparent text-slate-700 outline-none cursor-pointer text-xs font-medium"
-                title="Filter Sampai Tanggal"
+                onChange={(e) => { setFilterEndDate(e.target.value); setSelectedMonth(''); }}
+                className="bg-transparent text-slate-700 outline-none cursor-pointer text-xs font-semibold"
+                title="Tanggal Sampai"
               />
               {(filterStartDate || filterEndDate) && (
                 <button
                   type="button"
-                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); }}
+                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setSelectedMonth('all'); }}
                   className="text-slate-400 hover:text-rose-600 p-0.5 rounded cursor-pointer transition-colors"
                   title="Hapus Filter Tanggal"
                 >
@@ -470,6 +587,17 @@ export const ReconciliationTable = ({
             >
               <ArrowUpDown className="w-3.5 h-3.5 text-corporate-600" />
               <span>Tanggal: <strong>{sortDateOrder === 'desc' ? 'Terbaru' : 'Terlama'}</strong></span>
+            </button>
+
+            {/* Tombol Export Data Excel */}
+            <button
+              type="button"
+              onClick={handleExportAllData}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-xl shadow-xs transition-all cursor-pointer"
+              title="Export seluruh data rekonsiliasi ke Excel"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Excel</span>
             </button>
 
             {/* Filter Bank/Kas */}
@@ -855,6 +983,19 @@ export const ReconciliationTable = ({
 
       {/* Modal Validasi Hapus Data (Tunggal & Batch) */}
       {/* Popup Wizard Edit Transaksi */}
+      <EditForecastModal
+        isOpen={Boolean(editingForecast)}
+        onClose={() => setEditingForecast(null)}
+        forecast={editingForecast}
+        banks={banks}
+        onSave={(updatedFields) => {
+          if (editingForecast && onUpdateForecast) {
+            onUpdateForecast(editingForecast.id, updatedFields);
+          }
+        }}
+        isViewer={isViewer}
+      />
+
       <EditTransactionModal
         isOpen={Boolean(editingTx)}
         onClose={() => setEditingTx(null)}

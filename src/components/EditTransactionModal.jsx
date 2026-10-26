@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
-  Check, 
+  Edit3, 
+  CheckCircle2, 
   Building, 
   ArrowDownLeft, 
   ArrowUpRight, 
   Calendar, 
   FileText, 
   Target, 
-  Coins, 
   AlertTriangle 
 } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
@@ -49,7 +49,6 @@ export function EditTransactionModal({
     setNominalDisplay(formatNominalInput(raw));
   };
 
-  // Filter forecasts matching current tipe
   const availablePlans = forecasts.filter(f => f.tipe === tipe);
 
   const handleSubmit = (e) => {
@@ -83,28 +82,28 @@ export function EditTransactionModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 my-auto">
         
-        {/* Header */}
-        <div className="px-5 py-4 bg-corporate-900 text-white flex items-center justify-between border-b border-corporate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-corporate-200">
-              <FileText className="w-5 h-5" />
+        {/* Header (Matching Gambar 1) */}
+        <div className="px-6 py-4 bg-[#202f45] text-white flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-slate-200 shrink-0">
+              <Edit3 className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold tracking-tight">Edit Data Mutasi Kas</h3>
-              <p className="text-[11px] text-corporate-300">Sesuaikan rekening, tipe, nominal, dan tanggal transaksi</p>
+              <h3 className="text-base font-bold tracking-tight text-white">Edit Data Mutasi Kas</h3>
+              <p className="text-xs text-slate-300">Ubah rekening, tipe mutasi, deskripsi, nominal, dan tanggal</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-corporate-300 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
           {errorMsg && (
             <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-700 font-semibold">
@@ -113,16 +112,15 @@ export function EditTransactionModal({
             </div>
           )}
 
-          {/* 1. Pilih Rekening Bank / Kas */}
+          {/* 1. Tipe Akun Keuangan / Rekening Bank */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5 flex items-center gap-1.5">
-              <Building className="w-3.5 h-3.5 text-corporate-600" />
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
               Pilihan Rekening Bank / Kas
             </label>
             <select
               value={bankId}
               onChange={(e) => setBankId(e.target.value)}
-              className="w-full px-3 py-2.5 text-xs sm:text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-corporate-500 cursor-pointer"
+              className="w-full px-3 py-2.5 text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-corporate-500 cursor-pointer"
               required
             >
               {banks.map(b => (
@@ -138,7 +136,7 @@ export function EditTransactionModal({
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
               Jenis Mutasi
             </label>
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => {
@@ -148,13 +146,14 @@ export function EditTransactionModal({
                     if (!exists) setPlanId('unplanned');
                   }
                 }}
-                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all cursor-pointer ${
                   tipe === 'pemasukan' 
-                    ? 'bg-emerald-600 text-white shadow-xs' 
-                    : 'text-slate-600 hover:bg-slate-200/60'
+                    ? 'bg-[#27384e] text-white border-[#27384e] shadow-xs' 
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                <ArrowDownLeft className="w-4 h-4" /> Pemasukan (Masuk)
+                <ArrowDownLeft className="w-4 h-4 text-emerald-400" />
+                <span>Pemasukan</span>
               </button>
               <button
                 type="button"
@@ -165,78 +164,74 @@ export function EditTransactionModal({
                     if (!exists) setPlanId('unplanned');
                   }
                 }}
-                className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all cursor-pointer ${
                   tipe === 'pengeluaran' 
-                    ? 'bg-rose-600 text-white shadow-xs' 
-                    : 'text-slate-600 hover:bg-slate-200/60'
+                    ? 'bg-[#27384e] text-white border-[#27384e] shadow-xs' 
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                <ArrowUpRight className="w-4 h-4" /> Pengeluaran (Keluar)
+                <ArrowUpRight className="w-4 h-4 text-rose-400" />
+                <span>Pengeluaran</span>
               </button>
             </div>
           </div>
 
-          {/* 3. Tanggal & Nominal */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-corporate-600" />
-                Tanggal Transaksi
-              </label>
-              <input
-                type="date"
-                value={tanggal}
-                onChange={(e) => setTanggal(e.target.value)}
-                className="w-full px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 font-medium"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5 flex items-center gap-1.5">
-                <Coins className="w-3.5 h-3.5 text-corporate-600" />
-                Nominal (Rp)
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-500">Rp</span>
-                <input
-                  type="text"
-                  value={nominalDisplay}
-                  onChange={handleNominalChange}
-                  placeholder="0"
-                  className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm font-mono-num font-bold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 text-slate-900"
-                  required
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* 4. Deskripsi Transaksi */}
+          {/* 3. Deskripsi Transaksi */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-corporate-600" />
-              Deskripsi / Uraian Transaksi
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              Deskripsi Transaksi
             </label>
             <input
               type="text"
               value={deskripsi}
               onChange={(e) => setDeskripsi(e.target.value)}
-              placeholder="Contoh: Pembelian perlengkapan kantor..."
-              className="w-full px-3 py-2.5 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 font-semibold text-slate-900"
+              placeholder="Contoh: Pembayaran invoice client..."
+              className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 font-semibold text-slate-900"
               required
             />
           </div>
 
-          {/* 5. Target Forecast */}
+          {/* 4. Nominal */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5 flex items-center gap-1.5">
-              <Target className="w-3.5 h-3.5 text-corporate-600" />
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              Nominal
+            </label>
+            <div className="relative">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-xs font-bold text-slate-500">Rp</span>
+              <input
+                type="text"
+                value={nominalDisplay}
+                onChange={handleNominalChange}
+                placeholder="0"
+                className="w-full pl-10 pr-3 py-2.5 text-sm font-mono-num font-bold bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 text-slate-900"
+                required
+              />
+            </div>
+          </div>
+
+          {/* 5. Tanggal Transaksi */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              Tanggal Transaksi
+            </label>
+            <input
+              type="date"
+              value={tanggal}
+              onChange={(e) => setTanggal(e.target.value)}
+              className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 font-medium"
+              required
+            />
+          </div>
+
+          {/* 6. Target Forecast Terkait */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
               Alokasi Rencana Forecast
             </label>
             <select
               value={planId}
               onChange={(e) => setPlanId(e.target.value)}
-              className={`w-full px-3 py-2 text-xs rounded-xl font-medium border focus:ring-2 focus:ring-corporate-500 cursor-pointer ${
+              className={`w-full px-3 py-2.5 text-xs rounded-xl font-medium border focus:ring-2 focus:ring-corporate-500 cursor-pointer ${
                 planId === 'unplanned'
                   ? 'bg-rose-50/70 border-rose-300 text-rose-900'
                   : 'bg-slate-50 border-slate-200 text-slate-800'
@@ -253,22 +248,22 @@ export function EditTransactionModal({
             </select>
           </div>
 
-          {/* Actions */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+          {/* Actions (Matching Gambar 1) */}
+          <div className="pt-4 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              className="px-5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
             >
               Batal
             </button>
             <button
               type="submit"
               disabled={isViewer}
-              className="px-5 py-2 text-xs font-bold text-white bg-corporate-900 hover:bg-navy-950 active:scale-95 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-6 py-2.5 text-xs font-bold text-white bg-[#27384e] hover:bg-[#1b2838] active:scale-95 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
-              <Check className="w-4 h-4" />
-              Simpan Perubahan
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Simpan Perubahan</span>
             </button>
           </div>
         </form>

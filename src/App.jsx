@@ -638,6 +638,9 @@ export function App() {
             <AnalyticsCharts
               banks={banks}
               transactions={transactions}
+              forecasts={forecasts}
+              companyName={companyName}
+              currentUser={currentUser}
             />
           </section>
         )}

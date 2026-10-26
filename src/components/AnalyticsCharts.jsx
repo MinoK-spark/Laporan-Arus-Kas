@@ -14,6 +14,7 @@ import {
   ResponsiveContainer 
 } from 'recharts';
 import { 
+  Printer,
   Calendar, 
   TrendingUp, 
   TrendingDown, 
@@ -27,13 +28,21 @@ import {
   BarChart3 
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
+import { ManagementReportModal } from './ManagementReportModal';
 
 const BULAN_NAMES = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
-export function AnalyticsCharts({ banks = [], transactions = [] }) {
+export function AnalyticsCharts({ 
+  banks = [], 
+  transactions = [], 
+  forecasts = [], 
+  companyName = 'PT GRAHA PRIMA ENERGI', 
+  currentUser 
+}) {
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   // Extract all distinct years from transactions and bank dates
   const availableYears = useMemo(() => {
     const yearsSet = new Set();
@@ -287,6 +296,17 @@ export function AnalyticsCharts({ banks = [], transactions = [] }) {
               </option>
             ))}
           </select>
+
+          {/* Tombol Cetak Report Formal Manajemen (PDF) */}
+          <button
+            type="button"
+            onClick={() => setIsReportModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-corporate-900 hover:bg-navy-950 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 ml-auto md:ml-0"
+            title="Cetak Laporan Formal Analisis Arus Kas untuk Manajemen"
+          >
+            <Printer className="w-3.5 h-3.5 text-amber-400" />
+            <span>Cetak Report Manajemen (PDF)</span>
+          </button>
         </div>
       </div>
 
@@ -566,6 +586,22 @@ export function AnalyticsCharts({ banks = [], transactions = [] }) {
         </div>
 
       </div>
+
+      {/* Modal Laporan Formal Manajemen */}
+      <ManagementReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        companyName={companyName}
+        currentUser={currentUser}
+        periodLabel={periodType === 'month' ? `Bulan ${BULAN_NAMES[selectedMonth - 1]} ${selectedYear}` : `Tahun ${selectedYear}`}
+        totalPemasukan={periodSummary.totalIn}
+        totalPengeluaran={periodSummary.totalOut}
+        netCashflow={periodSummary.net}
+        saldoAkhirKumulatif={periodSummary.closingBalance}
+        bankAnalyticsData={bankAnalyticsData}
+        forecasts={forecasts}
+        transactions={transactions}
+      />
 
     </div>
   );
