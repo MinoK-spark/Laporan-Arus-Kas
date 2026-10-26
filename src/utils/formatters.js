@@ -13,39 +13,40 @@ export const formatRupiah = (value) => {
 
 export const formatNominalInput = (raw) => {
   if (raw === null || raw === undefined) return '';
-  let str = String(raw).trim();
-  if (str === '') return '';
 
-  // Remove currency prefix or letters, keep digits, dot, comma, minus
-  str = str.replace(/Rp\s?/gi, '').replace(/[^\d.,-]/g, '');
-  if (!str) return '';
-
-  let isNegative = str.startsWith('-');
-  if (isNegative) str = str.slice(1);
-
+  let isNegative = false;
   let intPart = '';
   let decPart = null;
 
-  if (str.includes(',')) {
-    const parts = str.split(',');
-    intPart = parts[0].replace(/\D/g, '');
-    decPart = parts.slice(1).join('').replace(/\D/g, '').slice(0, 2);
-  } else if (str.includes('.')) {
-    if (str.endsWith('.')) {
-      intPart = str.slice(0, -1).replace(/\D/g, '');
-      decPart = '';
-    } else {
-      const parts = str.split('.');
-      if (parts.length === 2 && parts[1].length <= 2) {
-        intPart = parts[0].replace(/\D/g, '');
-        decPart = parts[1].replace(/\D/g, '').slice(0, 2);
-      } else {
-        intPart = str.replace(/\D/g, '');
-      }
-    }
+  if (typeof raw === 'number') {
+    if (isNaN(raw)) return '';
+    isNegative = raw < 0;
+    const parts = String(Math.abs(raw)).split('.');
+    intPart = parts[0];
+    decPart = parts[1] ? parts[1].slice(0, 2) : null;
   } else {
-    intPart = str.replace(/\D/g, '');
+    let str = String(raw).trim();
+    if (str === '') return '';
+
+    // Remove currency prefix and characters
+    str = str.replace(/Rp\s?/gi, '').trim();
+    if (!str) return '';
+
+    isNegative = str.startsWith('-');
+    if (isNegative) str = str.slice(1);
+
+    // Desimal HANYA diubah secara manual jika pengguna mengetik tanda koma ','
+    // Titik '.' selalu diperlakukan sebagai pemisah ribuan, tidak pernah otomatis jadi desimal
+    if (str.includes(',')) {
+      const parts = str.split(',');
+      intPart = parts[0].replace(/\D/g, '');
+      decPart = parts.slice(1).join('').replace(/\D/g, '').slice(0, 2);
+    } else {
+      intPart = str.replace(/\D/g, '');
+    }
   }
+
+  if (!intPart && decPart === null) return '';
 
   const formattedInt = intPart ? new Intl.NumberFormat('id-ID').format(Number(intPart)) : '0';
   const prefix = isNegative ? '-' : '';
@@ -65,28 +66,17 @@ export const parseRupiahInput = (str) => {
   let isNegative = s.startsWith('-');
   if (isNegative) s = s.slice(1);
 
-  if (s.includes('.') && s.includes(',')) {
-    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
-      // Indonesian format: 1.000.000,50 -> remove dots, replace comma with dot
-      s = s.replace(/\./g, '').replace(',', '.');
-    } else {
-      // US format: 1,000,000.50 -> remove commas
-      s = s.replace(/,/g, '');
-    }
-  } else if (s.includes(',')) {
-    if (/,\d{1,2}$/.test(s)) {
-      s = s.replace(',', '.');
-    } else {
-      s = s.replace(/,/g, '');
-    }
-  } else if (s.includes('.')) {
-    if (/\.\d{3}$/.test(s) && !/\.\d{1,2}$/.test(s)) {
-      s = s.replace(/\./g, '');
-    }
+  let val = 0;
+  if (s.includes(',')) {
+    const parts = s.split(',');
+    const intPart = parts[0].replace(/\D/g, '') || '0';
+    const decPart = parts.slice(1).join('').replace(/\D/g, '').slice(0, 2) || '0';
+    val = parseFloat(`${intPart}.${decPart}`);
+  } else {
+    const intPart = s.replace(/\D/g, '') || '0';
+    val = parseInt(intPart, 10);
   }
 
-  s = s.replace(/[^0-9.]/g, '');
-  let val = parseFloat(s);
   if (isNaN(val)) return 0;
   if (isNegative) val = -val;
   return Math.round(val * 100) / 100;

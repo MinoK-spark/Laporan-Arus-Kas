@@ -38,10 +38,7 @@
   animation: pulse-subtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-
-/* Print Rules specifically for Dashboard Summary Report */
-
-/* Print Rules specifically for Dashboard Summary Report (A4 Landscape) */
+/* Print Rules specifically for Formal Reports (A4 Landscape / Portrait) */
 @media print {
   @page {
     size: A4 landscape;
@@ -53,15 +50,20 @@
     background: #ffffff !important;
     color: #0f172a !important;
     overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   body * {
     visibility: hidden;
   }
   #printable-dashboard-summary,
-  #printable-dashboard-summary * {
+  #printable-dashboard-summary *,
+  #printable-management-report,
+  #printable-management-report * {
     visibility: visible;
   }
-  #printable-dashboard-summary {
+  #printable-dashboard-summary,
+  #printable-management-report {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -74,18 +76,24 @@
     border: none !important;
     box-shadow: none !important;
     overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
-  #printable-dashboard-summary table {
+  #printable-dashboard-summary table,
+  #printable-management-report table {
     width: 100% !important;
     table-layout: auto !important;
     border-collapse: collapse !important;
   }
-  #printable-dashboard-summary tr {
+  #printable-dashboard-summary tr,
+  #printable-management-report tr {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
   #printable-dashboard-summary th,
-  #printable-dashboard-summary td {
+  #printable-dashboard-summary td,
+  #printable-management-report th,
+  #printable-management-report td {
     border-color: #cbd5e1 !important;
   }
   .no-print {
