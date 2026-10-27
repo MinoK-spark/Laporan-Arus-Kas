@@ -59,11 +59,14 @@
   #printable-dashboard-summary,
   #printable-dashboard-summary *,
   #printable-management-report,
-  #printable-management-report * {
+  #printable-management-report *,
+  #printable-bank-account-report,
+  #printable-bank-account-report * {
     visibility: visible;
   }
   #printable-dashboard-summary,
-  #printable-management-report {
+  #printable-management-report,
+  #printable-bank-account-report {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -80,20 +83,24 @@
     print-color-adjust: exact !important;
   }
   #printable-dashboard-summary table,
-  #printable-management-report table {
+  #printable-management-report table,
+  #printable-bank-account-report table {
     width: 100% !important;
     table-layout: auto !important;
     border-collapse: collapse !important;
   }
   #printable-dashboard-summary tr,
-  #printable-management-report tr {
+  #printable-management-report tr,
+  #printable-bank-account-report tr {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
   #printable-dashboard-summary th,
   #printable-dashboard-summary td,
   #printable-management-report th,
-  #printable-management-report td {
+  #printable-management-report td,
+  #printable-bank-account-report th,
+  #printable-bank-account-report td {
     border-color: #cbd5e1 !important;
   }
   .no-print {

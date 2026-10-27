@@ -272,19 +272,123 @@ export function App() {
     showNotification('Data pengguna berhasil diperbarui.');
   };
 
-  const totalSaldoAwalSemuaBank = banks.reduce((sum, b) => sum + (Number(b.saldoAwal) || 0), 0);
-  const totalMasuk = transactions.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-  const totalKeluar = transactions.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-  const saldoAkhirKeseluruhan = totalSaldoAwalSemuaBank + totalMasuk - totalKeluar;
+  // Daftar seluruh periode bulan unik dari transaksi & saldo awal
+  const availableDashboardMonths = useMemo(() => {
+    const set = new Set();
+    banks.forEach(b => {
+      if (b.tanggalSaldoAwal) set.add(b.tanggalSaldoAwal.slice(0, 7));
+    });
+    transactions.forEach(t => {
+      if (t.tanggal) set.add(t.tanggal.slice(0, 7));
+    });
+    const d = new Date();
+    set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    return Array.from(set).sort().reverse();
+  }, [banks, transactions]);
 
-  // Data Rencana Forecast yang MASUK di Tabel Rekonsiliasi (hanya yang memiliki input transaksi mutasi)
-  const planTransactionsMap = {};
-  (forecasts || []).forEach(f => {
-    planTransactionsMap[f.id] = (transactions || []).filter(t => t.planId === f.id);
-  });
-  const reconciledForecasts = (forecasts || []).filter(f => (planTransactionsMap[f.id] || []).length > 0);
+  // Kalkulasi Rollover Saldo Kas & Mutasi yang Disesuaikan dengan Periode Bulan Terpilih
+  const dashboardMetrics = useMemo(() => {
+    const totalMasterSaldoAwal = banks.reduce((sum, b) => sum + (Number(b.saldoAwal) || 0), 0);
 
-  // Target Forecast di Tabel Rekonsiliasi
+    if (!selectedMonth || selectedMonth === 'all') {
+      const masuk = transactions.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const keluar = transactions.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const saldoAkhir = totalMasterSaldoAwal + masuk - keluar;
+      return {
+        isFilteredMonth: false,
+        totalSaldoAwal: totalMasterSaldoAwal,
+        totalMasuk: masuk,
+        totalKeluar: keluar,
+        saldoAkhirKeseluruhan: saldoAkhir
+      };
+    }
+
+    const startOfTargetMonth = `${selectedMonth}-01`;
+    const priorIn = transactions
+      .filter(t => t.tipe === 'pemasukan' && t.tanggal && t.tanggal < startOfTargetMonth)
+      .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+    const priorOut = transactions
+      .filter(t => t.tipe === 'pengeluaran' && t.tanggal && t.tanggal < startOfTargetMonth)
+      .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+    // Saldo Awal Bulan Terpilih = Saldo Master Awal + Inflow sebelum bulan M - Outflow sebelum bulan M
+    const saldoAwalBulanIni = totalMasterSaldoAwal + priorIn - priorOut;
+
+    // Mutasi Pemasukan & Pengeluaran Khusus pada Bulan M
+    const currentIn = transactions
+      .filter(t => t.tipe === 'pemasukan' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+    const currentOut = transactions
+      .filter(t => t.tipe === 'pengeluaran' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+    // Saldo Akhir Bulan Terpilih = Saldo Awal Bulan Terpilih + Inflow Bulan M - Outflow Bulan M
+    const saldoAkhirBulanIni = saldoAwalBulanIni + currentIn - currentOut;
+
+    return {
+      isFilteredMonth: true,
+      totalSaldoAwal: saldoAwalBulanIni,
+      totalMasuk: currentIn,
+      totalKeluar: currentOut,
+      saldoAkhirKeseluruhan: saldoAkhirBulanIni
+    };
+  }, [banks, transactions, selectedMonth]);
+
+  // Saldo per Rekening Bank Disesuaikan dengan Periode Bulan
+  const banksWithPeriodBalances = useMemo(() => {
+    return banks.map(b => {
+      const masterSaldoAwal = Number(b.saldoAwal) || 0;
+      if (!selectedMonth || selectedMonth === 'all') {
+        const bIn = transactions.filter(t => t.bankId === b.id && t.tipe === 'pemasukan').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const bOut = transactions.filter(t => t.bankId === b.id && t.tipe === 'pengeluaran').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        return {
+          ...b,
+          saldoAwalPeriode: masterSaldoAwal,
+          totalMasukPeriode: bIn,
+          totalKeluarPeriode: bOut,
+          saldoAkhirPeriode: masterSaldoAwal + bIn - bOut
+        };
+      }
+
+      const startOfTargetMonth = `${selectedMonth}-01`;
+      const priorIn = transactions.filter(t => t.bankId === b.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal < startOfTargetMonth).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const priorOut = transactions.filter(t => t.bankId === b.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal < startOfTargetMonth).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const bSaldoAwal = masterSaldoAwal + priorIn - priorOut;
+
+      const bIn = transactions.filter(t => t.bankId === b.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const bOut = transactions.filter(t => t.bankId === b.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      return {
+        ...b,
+        saldoAwalPeriode: bSaldoAwal,
+        totalMasukPeriode: bIn,
+        totalKeluarPeriode: bOut,
+        saldoAkhirPeriode: bSaldoAwal + bIn - bOut
+      };
+    });
+  }, [banks, transactions, selectedMonth]);
+
+  // Forecast yang relevan dengan periode bulan
+  const currentMonthForecasts = useMemo(() => {
+    if (!selectedMonth || selectedMonth === 'all') return forecasts;
+    return (forecasts || []).filter(f => f.periodeBulan === selectedMonth);
+  }, [forecasts, selectedMonth]);
+
+  const planTransactionsMap = useMemo(() => {
+    const map = {};
+    (forecasts || []).forEach(f => {
+      map[f.id] = (transactions || []).filter(t => {
+        if (t.planId !== f.id) return false;
+        if (selectedMonth && selectedMonth !== 'all' && t.tanggal && !t.tanggal.startsWith(selectedMonth)) return false;
+        return true;
+      });
+    });
+    return map;
+  }, [forecasts, transactions, selectedMonth]);
+
+  const reconciledForecasts = useMemo(() => {
+    return (currentMonthForecasts || []).filter(f => (planTransactionsMap[f.id] || []).length > 0);
+  }, [currentMonthForecasts, planTransactionsMap]);
+
   const totalForecastMasuk = reconciledForecasts
     .filter(f => f.tipe === 'pemasukan')
     .reduce((sum, f) => sum + (Number(f.nominal) || 0), 0);
@@ -293,15 +397,13 @@ export function App() {
     .filter(f => f.tipe === 'pengeluaran')
     .reduce((sum, f) => sum + (Number(f.nominal) || 0), 0);
 
-  // Proyeksi Saldo Akhir berdasarkan data yang masuk di rekonsiliasi
-  const proyeksiSaldoAkhir = totalSaldoAwalSemuaBank + totalForecastMasuk - totalForecastKeluar;
+  const proyeksiSaldoAkhir = dashboardMetrics.totalSaldoAwal + totalForecastMasuk - totalForecastKeluar;
 
-  // Master total seluruh rencana kas
-  const masterForecastMasuk = (forecasts || [])
+  const masterForecastMasuk = (currentMonthForecasts || [])
     .filter(f => f.tipe === 'pemasukan')
     .reduce((sum, f) => sum + (Number(f.nominal) || 0), 0);
 
-  const masterForecastKeluar = (forecasts || [])
+  const masterForecastKeluar = (currentMonthForecasts || [])
     .filter(f => f.tipe === 'pengeluaran')
     .reduce((sum, f) => sum + (Number(f.nominal) || 0), 0);
 
@@ -562,15 +664,19 @@ export function App() {
                 banks={banks}
                 forecasts={forecasts}
                 transactions={transactions}
-                totalSaldoAwalSemuaBank={totalSaldoAwalSemuaBank}
-                totalMasuk={totalMasuk}
-                totalKeluar={totalKeluar}
-                saldoAkhirKeseluruhan={saldoAkhirKeseluruhan}
+                totalSaldoAwalSemuaBank={dashboardMetrics.totalSaldoAwal}
+                totalMasuk={dashboardMetrics.totalMasuk}
+                totalKeluar={dashboardMetrics.totalKeluar}
+                saldoAkhirKeseluruhan={dashboardMetrics.saldoAkhirKeseluruhan}
                 totalForecastMasuk={totalForecastMasuk}
                 totalForecastKeluar={totalForecastKeluar}
                 proyeksiSaldoAkhir={proyeksiSaldoAkhir}
                 masterForecastMasuk={masterForecastMasuk}
                 masterForecastKeluar={masterForecastKeluar}
+                selectedMonth={selectedMonth}
+                onMonthChange={setSelectedMonth}
+                availableMonths={availableDashboardMonths}
+                banksWithPeriodBalances={banksWithPeriodBalances}
               />
             </section>
             
@@ -593,10 +699,12 @@ export function App() {
                 onDeleteTransaction={handleDeleteTransaction}
                 onDeleteTransactionsBatch={handleDeleteTransactionsBatch}
                 onDeleteForecast={handleDeleteForecast}
-              onDeleteForecastsBatch={handleDeleteForecastsBatch}
+                onDeleteForecastsBatch={handleDeleteForecastsBatch}
                 onUpdateForecast={handleUpdateForecast}
                 onUpdateTransaction={handleUpdateTransaction}
                 currentUser={currentUser}
+                selectedMonth={selectedMonth}
+                onMonthChange={setSelectedMonth}
               />
             </section>
           </>
@@ -605,6 +713,7 @@ export function App() {
         {activeTab === 'banks' && (
           <section>
             <BankManager
+              companyName={companyName}
               banks={banks}
               transactions={transactions}
               onAddBank={handleAddBank}

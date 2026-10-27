@@ -6,7 +6,9 @@ import {
   Scale, 
   Target, 
   Building, 
-  Sparkles 
+  Sparkles,
+  Calendar,
+  Filter
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
 
@@ -21,11 +23,37 @@ export const MetricCards = ({
   totalForecastMasuk = 0,
   totalForecastKeluar = 0,
   proyeksiSaldoAkhir = 0,
-  masterForecastMasuk = 0,
-  masterForecastKeluar = 0
+  selectedMonth = 'all',
+  onMonthChange,
+  availableMonths = [],
+  banksWithPeriodBalances = []
 }) => {
-  const countMasukTx = (transactions || []).filter(t => t.tipe === 'pemasukan').length;
-  const countKeluarTx = (transactions || []).filter(t => t.tipe === 'pengeluaran').length;
+  // Format month label
+  const formatBulan = (yyyymm) => {
+    if (!yyyymm || yyyymm === 'all') return 'Semua Periode (All-Time)';
+    try {
+      const [year, month] = yyyymm.split('-');
+      const date = new Date(year, parseInt(month) - 1);
+      return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(date);
+    } catch {
+      return yyyymm;
+    }
+  };
+
+  const isPeriodFiltered = selectedMonth && selectedMonth !== 'all';
+  const displayBanks = banksWithPeriodBalances.length > 0 ? banksWithPeriodBalances : banks;
+
+  const countMasukTx = (transactions || []).filter(t => {
+    if (t.tipe !== 'pemasukan') return false;
+    if (isPeriodFiltered && t.tanggal && !t.tanggal.startsWith(selectedMonth)) return false;
+    return true;
+  }).length;
+
+  const countKeluarTx = (transactions || []).filter(t => {
+    if (t.tipe !== 'pengeluaran') return false;
+    if (isPeriodFiltered && t.tanggal && !t.tanggal.startsWith(selectedMonth)) return false;
+    return true;
+  }).length;
 
   const persenMasuk = totalForecastMasuk > 0 ? Math.round((totalMasuk / totalForecastMasuk) * 100) : 0;
   const selisihPemasukan = totalMasuk - totalForecastMasuk;
@@ -44,10 +72,50 @@ export const MetricCards = ({
 
   return (
     <div className="space-y-6">
+      
+      {/* Period Sync Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white px-5 py-3 rounded-2xl border border-slate-200/90 shadow-2xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-corporate-50 border border-corporate-200/80 flex items-center justify-center text-corporate-700">
+            <Calendar className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Periode Kas Aktif:</span>
+              <span className="text-xs font-black text-slate-900 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200">
+                {formatBulan(selectedMonth)}
+              </span>
+              {isPeriodFiltered && (
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  Sinkron dengan Rekonsiliasi
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">Saldo awal dihitung otomatis dari akumulasi saldo akhir bulan sebelumnya</p>
+          </div>
+        </div>
+
+        {onMonthChange && availableMonths.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Ubah Periode:</label>
+            <select
+              value={selectedMonth || 'all'}
+              onChange={(e) => onMonthChange(e.target.value)}
+              className="text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-xl px-3 py-1.5 outline-none cursor-pointer shadow-2xs transition-colors"
+            >
+              <option value="all">Semua Periode (All-Time)</option>
+              {availableMonths.map(m => (
+                <option key={m} value={m}>{formatBulan(m)}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
       {/* 4 Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
-        {/* 1. Total Saldo Awal Semua Bank */}
+        {/* 1. Total Saldo Awal (Rollover dari bulan sebelumnya / master pertama kali) */}
         <div className="bg-white rounded-2xl px-4 sm:px-5 py-4 border border-slate-200/90 shadow-card hover:shadow-card-hover transition-all duration-200 relative overflow-hidden flex flex-col justify-between min-h-[160px]">
           <div className="absolute top-0 left-0 w-1.5 h-full bg-corporate-600 rounded-l-2xl"></div>
           <div>
@@ -67,16 +135,16 @@ export const MetricCards = ({
             </div>
             <div className="mt-1 flex items-center gap-1.5">
               <span className="text-[10px] bg-slate-100 text-slate-700 font-bold px-2 py-0.5 rounded-full border border-slate-200">
-                Saldo Terdaftar
+                {isPeriodFiltered ? 'Saldo Awal Periode' : 'Saldo Awal Terdaftar'}
               </span>
             </div>
           </div>
           <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-semibold">
-            <span>Tersebar di {banks.length} Rekening Bank & Kas</span>
+            <span>{isPeriodFiltered ? 'Akumulasi s/d akhir bulan lalu' : `Tersebar di ${banks.length} Rekening Bank & Kas`}</span>
           </div>
         </div>
 
-        {/* 2. Total Pemasukan Aktual */}
+        {/* 2. Total Pemasukan Aktual Bulan Ini */}
         <div className="bg-white rounded-2xl px-4 sm:px-5 py-4 border border-slate-200/90 shadow-card hover:shadow-card-hover transition-all duration-200 relative overflow-hidden flex flex-col justify-between min-h-[160px]">
           <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500 rounded-l-2xl"></div>
           <div>
@@ -118,7 +186,7 @@ export const MetricCards = ({
               <span>{selisihPemasukan >= 0 ? 'Surplus Capaian:' : 'Kekurangan Target:'}</span>
               <span className={`font-mono-num whitespace-nowrap font-bold ${selisihPemasukan >= 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
                 {totalForecastMasuk > 0 
-                  ? `${selisihPemasukan >= 0 ? '+' : ''}${formatRupiah(selisihPemasukan)}`
+                  ? (selisihPemasukan >= 0 ? `+${formatRupiah(selisihPemasukan)}` : `-${formatRupiah(Math.abs(selisihPemasukan))}`)
                   : formatRupiah(totalMasuk)
                 }
               </span>
@@ -126,7 +194,7 @@ export const MetricCards = ({
           </div>
         </div>
 
-        {/* 3. Total Pengeluaran Aktual */}
+        {/* 3. Total Pengeluaran Aktual Bulan Ini */}
         <div className="bg-white rounded-2xl px-4 sm:px-5 py-4 border border-slate-200/90 shadow-card hover:shadow-card-hover transition-all duration-200 relative overflow-hidden flex flex-col justify-between min-h-[160px]">
           <div className="absolute top-0 left-0 w-1.5 h-full bg-rose-500 rounded-l-2xl"></div>
           <div>
@@ -196,7 +264,7 @@ export const MetricCards = ({
             </div>
             <div className="mt-1 flex items-center gap-1.5">
               <span className="text-[10px] bg-corporate-800 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-corporate-700">
-                Saldo Kas Riil Saat Ini
+                {isPeriodFiltered ? `Posisi Akhir ${formatBulan(selectedMonth)}` : 'Saldo Kas Riil Saat Ini'}
               </span>
             </div>
           </div>
@@ -224,15 +292,20 @@ export const MetricCards = ({
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-bold tracking-wider text-slate-500 uppercase flex items-center gap-2">
             <Building className="w-4 h-4 text-corporate-600" />
-            <span>Saldo Terkini per Rekening Bank & Kas ({banks.length})</span>
+            <span>
+              Saldo per Rekening Bank & Kas ({displayBanks.length})
+              {isPeriodFiltered && <span className="text-corporate-700 font-bold ml-1">• Periode {formatBulan(selectedMonth)}</span>}
+            </span>
           </h3>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3.5">
-          {banks.map(bank => {
-            const bankIn = (transactions || []).filter(t => t.bankId === bank.id && t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-            const bankOut = (transactions || []).filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-            const currentBalance = (Number(bank.saldoAwal) || 0) + bankIn - bankOut;
+          {displayBanks.map(bank => {
+            const currentBalance = bank.saldoAkhirPeriode !== undefined 
+              ? bank.saldoAkhirPeriode 
+              : ((Number(bank.saldoAwal) || 0) + (bank.totalMasuk || 0) - (bank.totalKeluar || 0));
+
+            const hasMutation = (bank.totalMasukPeriode || bank.totalMasuk || 0) > 0 || (bank.totalKeluarPeriode || bank.totalKeluar || 0) > 0;
 
             return (
               <div 
@@ -257,8 +330,10 @@ export const MetricCards = ({
                 </div>
 
                 <div className="text-[11px] text-slate-400 font-medium flex items-center justify-between gap-1.5 mt-3 pt-2.5 border-t border-slate-100">
-                  <span className="truncate">Awal: {bank.tanggalSaldoAwal ? formatDateIndo(bank.tanggalSaldoAwal) : '-'}</span>
-                  {(bankIn > 0 || bankOut > 0) && (
+                  <span className="truncate">
+                    Awal: {formatRupiah(bank.saldoAwalPeriode !== undefined ? bank.saldoAwalPeriode : bank.saldoAwal)}
+                  </span>
+                  {hasMutation && (
                     <span className="text-[10px] font-bold text-corporate-700 bg-corporate-50 px-1.5 py-0.5 rounded">
                       Ada Mutasi
                     </span>

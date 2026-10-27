@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { 
-  Building, 
+  Building,
+  FileText, 
   Wallet, 
   ArrowLeftRight, 
   PlusCircle, 
@@ -19,6 +20,7 @@ import {
 import { formatRupiah, formatNominalInput, parseRupiahInput, formatDateIndo } from '../utils/formatters';
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { BankAccountReportModal } from './BankAccountReportModal';
 
 export const BankManager = ({ 
   banks = [], 
@@ -29,7 +31,8 @@ export const BankManager = ({
   onDeleteBanksBatch, 
   onUpdateBank, 
   onAddTransactions,
-  currentUser 
+  currentUser,
+  companyName = 'PT GRAHA PRIMA ENERGI'
 }) => {
   const isViewer = currentUser?.role === 'viewer';
 
@@ -43,6 +46,33 @@ export const BankManager = ({
 
   // Filter tab: 'all', 'bank', 'kas'
   const [activeTab, setActiveTab] = useState('all');
+  const [filterPeriode, setFilterPeriode] = useState('all');
+  const [reportModalAccount, setReportModalAccount] = useState(null);
+
+  // Available unique periods
+  const availablePeriods = useMemo(() => {
+    const set = new Set();
+    banks.forEach(b => {
+      if (b.tanggalSaldoAwal) set.add(b.tanggalSaldoAwal.slice(0, 7));
+    });
+    transactions.forEach(t => {
+      if (t.tanggal) set.add(t.tanggal.slice(0, 7));
+    });
+    const d = new Date();
+    set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    return Array.from(set).sort().reverse();
+  }, [banks, transactions]);
+
+  const formatBulan = (yyyymm) => {
+    if (!yyyymm || yyyymm === 'all') return 'Semua Periode';
+    try {
+      const [year, month] = yyyymm.split('-');
+      const date = new Date(year, parseInt(month) - 1);
+      return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(date);
+    } catch {
+      return yyyymm;
+    }
+  };
 
   // Selection & Batch Delete States
   const [selectedIds, setSelectedIds] = useState([]);
@@ -67,28 +97,61 @@ export const BankManager = ({
   const [transferError, setTransferError] = useState('');
   const [isTransferSuccess, setIsTransferSuccess] = useState(false);
 
-  // Per-account running balance calculations
+  // Per-account running balance calculations with monthly accumulation support
   const accountsWithBalances = useMemo(() => {
     return banks.map(bank => {
+      const masterSaldoAwal = Number(bank.saldoAwal) || 0;
+
+      if (!filterPeriode || filterPeriode === 'all') {
+        const totalMasuk = transactions
+          .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan')
+          .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+        const totalKeluar = transactions
+          .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran')
+          .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+        const saldoAkhir = masterSaldoAwal + totalMasuk - totalKeluar;
+
+        return {
+          ...bank,
+          saldoAwalPeriode: masterSaldoAwal,
+          totalMasuk,
+          totalKeluar,
+          saldoAkhir
+        };
+      }
+
+      // Filter periode spesifik (e.g. "2026-10")
+      const startOfTargetMonth = `${filterPeriode}-01`;
+      const priorIn = transactions
+        .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal < startOfTargetMonth)
+        .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const priorOut = transactions
+        .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal < startOfTargetMonth)
+        .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+      const saldoAwalPeriode = masterSaldoAwal + priorIn - priorOut;
+
       const totalMasuk = transactions
-        .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan')
+        .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal.startsWith(filterPeriode))
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
       const totalKeluar = transactions
-        .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran')
+        .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal.startsWith(filterPeriode))
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
-      const saldoAwal = Number(bank.saldoAwal) || 0;
-      const saldoAkhir = saldoAwal + totalMasuk - totalKeluar;
+      const saldoAkhir = saldoAwalPeriode + totalMasuk - totalKeluar;
 
       return {
         ...bank,
+        saldoAwalPeriode,
         totalMasuk,
         totalKeluar,
         saldoAkhir
       };
     });
-  }, [banks, transactions]);
+  }, [banks, transactions, filterPeriode]);
 
   // Aggregate Metrics
   const summaryMetrics = useMemo(() => {
@@ -625,8 +688,8 @@ export const BankManager = ({
             </div>
           </div>
 
-          {/* Filter Tabs: Semua, Bank, Kas */}
-          <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 text-xs">
+          {/* Filter Bar: Tabs & Filter Periode Bulan */}
+          <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -663,6 +726,24 @@ export const BankManager = ({
                 <Wallet className="w-3 h-3" />
                 <span>Kas ({accountsWithBalances.filter(a => a.tipeAkun === 'kas').length})</span>
               </button>
+            </div>
+
+            {/* Filter Periode Bulan Akumulasi */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-xl px-2.5 py-1 shadow-2xs hover:border-corporate-400 transition-colors">
+                <Calendar className="w-3.5 h-3.5 text-corporate-600 shrink-0" />
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Periode Mutasi:</label>
+                <select
+                  value={filterPeriode}
+                  onChange={(e) => setFilterPeriode(e.target.value)}
+                  className="text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+                >
+                  <option value="all">Semua Periode (All-Time)</option>
+                  {availablePeriods.map(p => (
+                    <option key={p} value={p}>{formatBulan(p)}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
           
@@ -770,7 +851,7 @@ export const BankManager = ({
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right font-mono-num font-semibold text-slate-700 whitespace-nowrap text-xs">
-                          {formatRupiah(account.saldoAwal)}
+                          {formatRupiah(account.saldoAwalPeriode !== undefined ? account.saldoAwalPeriode : account.saldoAwal)}
                         </td>
                         <td className="py-3 px-4 text-right font-mono-num font-semibold text-emerald-700 whitespace-nowrap text-xs">
                           {account.totalMasuk > 0 ? `+${formatRupiah(account.totalMasuk)}` : 'Rp 0,00'}
@@ -782,26 +863,36 @@ export const BankManager = ({
                           {formatRupiah(account.saldoAkhir)}
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
-                          {isViewer ? (
-                            <span className="text-xs text-slate-400 font-medium">Read-Only</span>
-                          ) : (
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => handleOpenEditModal(account)}
-                                className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
-                                title="Edit Akun"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleTriggerSingleDelete(account)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
-                                title="Hapus Akun"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          )}
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setReportModalAccount(account)}
+                              className="p-1.5 text-corporate-700 hover:text-corporate-900 rounded-lg hover:bg-corporate-100 transition-colors cursor-pointer"
+                              title="Lihat Akumulasi Bulanan & Cetak Laporan Rekening (PDF/Excel)"
+                            >
+                              <FileText className="w-4 h-4 text-corporate-700" />
+                            </button>
+                            {!isViewer ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditModal(account)}
+                                  className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
+                                  title="Edit Akun"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleTriggerSingleDelete(account)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                  title="Hapus Akun"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1101,6 +1192,16 @@ export const BankManager = ({
           </div>
         </div>
       )}
+
+      {/* Modal Laporan & Akumulasi Bulanan per Akun Bank/Kas */}
+      <BankAccountReportModal
+        isOpen={!!reportModalAccount}
+        onClose={() => setReportModalAccount(null)}
+        bank={reportModalAccount}
+        transactions={transactions}
+        companyName={companyName}
+        currentUser={currentUser}
+      />
 
       {/* Modal Validasi Hapus Bank/Kas */}
       <ConfirmDeleteModal

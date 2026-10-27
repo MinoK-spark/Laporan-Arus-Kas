@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
 X,
   ArrowUpDown,
@@ -36,7 +36,9 @@ export const ReconciliationTable = ({
   onDeleteForecastsBatch,
   onUpdateForecast,
   onUpdateTransaction,
-  currentUser
+  currentUser,
+  selectedMonth: propSelectedMonth,
+  onMonthChange: propOnMonthChange
 }) => {
   const isViewer = currentUser?.role === 'viewer';
   const [searchTerm, setSearchTerm] = useState('');
@@ -62,6 +64,30 @@ export const ReconciliationTable = ({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
   const [sortDateOrder, setSortDateOrder] = useState('desc'); // 'desc' | 'asc'
+
+  // Sinkronisasi jika periode bulan diubah dari Dashboard MetricCards
+  useEffect(() => {
+    if (propSelectedMonth !== undefined && propSelectedMonth !== selectedMonth) {
+      setSelectedMonth(propSelectedMonth);
+      if (!propSelectedMonth || propSelectedMonth === 'all') {
+        setFilterStartDate('');
+        setFilterEndDate('');
+      } else {
+        const [y, m] = propSelectedMonth.split('-');
+        const startDate = `${y}-${m}-01`;
+        const now = new Date();
+        const isCurrentMonth = now.getFullYear() === Number(y) && (now.getMonth() + 1) === Number(m);
+        if (isCurrentMonth) {
+          setFilterStartDate(startDate);
+          setFilterEndDate(`${y}-${m}-${String(now.getDate()).padStart(2, '0')}`);
+        } else {
+          const lastDay = new Date(Number(y), Number(m), 0).getDate();
+          setFilterStartDate(startDate);
+          setFilterEndDate(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+        }
+      }
+    }
+  }, [propSelectedMonth]);
 
   // Selection state
   const [selectedRowIds, setSelectedRowIds] = useState([]);
@@ -410,6 +436,9 @@ export const ReconciliationTable = ({
     const handleMonthChange = (e) => {
     const val = e.target.value;
     setSelectedMonth(val);
+    if (propOnMonthChange) {
+      propOnMonthChange(val);
+    }
     if (!val || val === 'all') {
       setFilterStartDate('');
       setFilterEndDate('');
@@ -569,7 +598,7 @@ export const ReconciliationTable = ({
               {(filterStartDate || filterEndDate) && (
                 <button
                   type="button"
-                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setSelectedMonth('all'); }}
+                  onClick={() => { setFilterStartDate(''); setFilterEndDate(''); setSelectedMonth('all'); propOnMonthChange?.('all'); }}
                   className="text-slate-400 hover:text-rose-600 p-0.5 rounded cursor-pointer transition-colors"
                   title="Hapus Filter Tanggal"
                 >
