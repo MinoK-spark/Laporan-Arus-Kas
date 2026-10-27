@@ -47,6 +47,7 @@ export function App() {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isPrintSummaryOpen, setIsPrintSummaryOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedMonth, setSelectedMonth] = useState('all');
   
   const [companyName, setCompanyName] = useState(() => {
     return localStorage.getItem('gpe_company_name') || 'PT GRAHA PRIMA ENERGI';

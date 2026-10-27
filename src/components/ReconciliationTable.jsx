@@ -20,7 +20,7 @@ X,
   CheckCircle2,
   Filter
 } from 'lucide-react';
-import { formatRupiah, parseRupiahInput, formatDateIndo } from '../utils/formatters';
+import { formatRupiah, parseRupiahInput, formatDateIndo, formatMonthIndo } from '../utils/formatters';
 import { downloadExcel } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { EditTransactionModal } from './EditTransactionModal';

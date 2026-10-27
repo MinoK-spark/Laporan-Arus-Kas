@@ -95,3 +95,17 @@ export const formatDateIndo = (dateStr) => {
     return dateStr;
   }
 };
+
+export const formatMonthIndo = (monthStr) => {
+  if (!monthStr) return '-';
+  try {
+    const [year, month] = monthStr.split('-');
+    const d = new Date(Number(year), parseInt(month, 10) - 1, 1);
+    return new Intl.DateTimeFormat('id-ID', {
+      month: 'long',
+      year: 'numeric'
+    }).format(d);
+  } catch (e) {
+    return monthStr;
+  }
+};
