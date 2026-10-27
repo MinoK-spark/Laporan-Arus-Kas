@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
+  ArrowLeftRight,
   Printer, 
   X, 
   Building, 
@@ -17,6 +18,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from '../utils/transactionHelper';
 import { downloadExcel } from '../utils/excelHelper';
 
 export function BankAccountReportModal({
@@ -83,8 +85,17 @@ export function BankAccountReportModal({
 
     for (const m of availableMonths) {
       const monthTx = bankTransactions.filter(t => t.tanggal && t.tanggal.startsWith(m));
-      const masuk = monthTx.filter(t => t.tipe === 'pemasukan').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
-      const keluar = monthTx.filter(t => t.tipe === 'pengeluaran').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const masuk = monthTx
+        .filter(t => isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in'))
+        .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const keluar = monthTx
+        .filter(t => isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out'))
+        .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const opMasuk = monthTx.filter(t => isOperationalIncome(t)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const opKeluar = monthTx.filter(t => isOperationalExpense(t)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const trfMasuk = monthTx.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'in').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const trfKeluar = monthTx.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+
       const net = masuk - keluar;
       const saldoAwalBulan = runningSaldo;
       const saldoAkhirBulan = saldoAwalBulan + net;
@@ -95,11 +106,15 @@ export function BankAccountReportModal({
         saldoAwal: saldoAwalBulan,
         masuk,
         keluar,
+        opMasuk,
+        opKeluar,
+        trfMasuk,
+        trfKeluar,
         net,
         saldoAkhir: saldoAkhirBulan,
         txCount: monthTx.length,
-        txMasukCount: monthTx.filter(t => t.tipe === 'pemasukan').length,
-        txKeluarCount: monthTx.filter(t => t.tipe === 'pengeluaran').length
+        txMasukCount: monthTx.filter(t => isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')).length,
+        txKeluarCount: monthTx.filter(t => isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')).length
       });
 
       runningSaldo = saldoAkhirBulan;

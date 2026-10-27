@@ -1,6 +1,7 @@
 import React from 'react';
 import { Printer, X, Building, Wallet, Calendar, FileText, ArrowDownLeft, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
+import { isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection } from '../utils/transactionHelper';
 
 export function PrintSummaryModal({
   isOpen,
@@ -15,13 +16,17 @@ export function PrintSummaryModal({
   const currentDate = new Date().toISOString().split('T')[0];
   const currentTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-  // Calculate Transaction Totals
+  // Calculate Transaction Totals (Murni Operasional, Mutasi Antar Bank Dicatat Tersendiri)
   const totalMasuk = transactions
-    .filter(t => t.tipe === 'pemasukan')
+    .filter(t => isOperationalIncome(t))
     .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
   const totalKeluar = transactions
-    .filter(t => t.tipe === 'pengeluaran')
+    .filter(t => isOperationalExpense(t))
+    .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+  const totalTransfer = transactions
+    .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out')
     .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
   const netCashFlow = totalMasuk - totalKeluar;
@@ -34,11 +39,11 @@ export function PrintSummaryModal({
 
   const accountsSummary = banks.map(bank => {
     const masuk = transactions
-      .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan')
+      .filter(t => t.bankId === bank.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')))
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
     const keluar = transactions
-      .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran')
+      .filter(t => t.bankId === bank.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')))
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
     const saldoAwal = Number(bank.saldoAwal) || 0;

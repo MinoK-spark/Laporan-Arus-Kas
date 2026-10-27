@@ -21,6 +21,7 @@ import { formatRupiah, formatNominalInput, parseRupiahInput, formatDateIndo } fr
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { BankAccountReportModal } from './BankAccountReportModal';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from '../utils/transactionHelper';
 
 export const BankManager = ({ 
   banks = [], 
@@ -98,18 +99,24 @@ export const BankManager = ({
   const [isTransferSuccess, setIsTransferSuccess] = useState(false);
 
   // Per-account running balance calculations with monthly accumulation support
+  // Memperhitungkan mutasi operasional DAN mutasi pemindahan dana antar bank untuk rekening tersebut
   const accountsWithBalances = useMemo(() => {
     return banks.map(bank => {
       const masterSaldoAwal = Number(bank.saldoAwal) || 0;
 
       if (!filterPeriode || filterPeriode === 'all') {
         const totalMasuk = transactions
-          .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan')
+          .filter(t => t.bankId === bank.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')))
           .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
         const totalKeluar = transactions
-          .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran')
+          .filter(t => t.bankId === bank.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')))
           .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+        const opMasuk = transactions.filter(t => t.bankId === bank.id && isOperationalIncome(t)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const opKeluar = transactions.filter(t => t.bankId === bank.id && isOperationalExpense(t)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const trfMasuk = transactions.filter(t => t.bankId === bank.id && isTransferTransaction(t) && getTransferDirection(t) === 'in').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const trfKeluar = transactions.filter(t => t.bankId === bank.id && isTransferTransaction(t) && getTransferDirection(t) === 'out').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
         const saldoAkhir = masterSaldoAwal + totalMasuk - totalKeluar;
 
@@ -118,6 +125,10 @@ export const BankManager = ({
           saldoAwalPeriode: masterSaldoAwal,
           totalMasuk,
           totalKeluar,
+          opMasuk,
+          opKeluar,
+          trfMasuk,
+          trfKeluar,
           saldoAkhir
         };
       }
@@ -125,21 +136,26 @@ export const BankManager = ({
       // Filter periode spesifik (e.g. "2026-10")
       const startOfTargetMonth = `${filterPeriode}-01`;
       const priorIn = transactions
-        .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal < startOfTargetMonth)
+        .filter(t => t.bankId === bank.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')) && t.tanggal && t.tanggal < startOfTargetMonth)
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
       const priorOut = transactions
-        .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal < startOfTargetMonth)
+        .filter(t => t.bankId === bank.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')) && t.tanggal && t.tanggal < startOfTargetMonth)
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
       const saldoAwalPeriode = masterSaldoAwal + priorIn - priorOut;
 
       const totalMasuk = transactions
-        .filter(t => t.bankId === bank.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal.startsWith(filterPeriode))
+        .filter(t => t.bankId === bank.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')) && t.tanggal && t.tanggal.startsWith(filterPeriode))
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
       const totalKeluar = transactions
-        .filter(t => t.bankId === bank.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal.startsWith(filterPeriode))
+        .filter(t => t.bankId === bank.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')) && t.tanggal && t.tanggal.startsWith(filterPeriode))
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+
+      const opMasuk = transactions.filter(t => t.bankId === bank.id && isOperationalIncome(t) && t.tanggal && t.tanggal.startsWith(filterPeriode)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const opKeluar = transactions.filter(t => t.bankId === bank.id && isOperationalExpense(t) && t.tanggal && t.tanggal.startsWith(filterPeriode)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const trfMasuk = transactions.filter(t => t.bankId === bank.id && isTransferTransaction(t) && getTransferDirection(t) === 'in' && t.tanggal && t.tanggal.startsWith(filterPeriode)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const trfKeluar = transactions.filter(t => t.bankId === bank.id && isTransferTransaction(t) && getTransferDirection(t) === 'out' && t.tanggal && t.tanggal.startsWith(filterPeriode)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
       const saldoAkhir = saldoAwalPeriode + totalMasuk - totalKeluar;
 
@@ -148,6 +164,10 @@ export const BankManager = ({
         saldoAwalPeriode,
         totalMasuk,
         totalKeluar,
+        opMasuk,
+        opKeluar,
+        trfMasuk,
+        trfKeluar,
         saldoAkhir
       };
     });
@@ -426,22 +446,28 @@ export const BankManager = ({
     const cleanNote = transferNote.trim() ? ` (${transferNote.trim()})` : '';
     const now = Date.now();
 
-    // 1. Pengeluaran dari Akun Asal
+    // 1. Pengeluaran dari Akun Asal (Transfer Keluar - Dicatatkan Tersendiri)
     const txOut = {
       id: `tx-trf-out-${now}`,
       bankId: transferFromId,
-      tipe: 'pengeluaran',
+      targetBankId: transferToId,
+      tipe: 'transfer',
+      transferDirection: 'out',
+      isTransfer: true,
       planId: 'unplanned',
       deskripsi: `Transfer Keluar ke [${toAcc.name}]${cleanNote}`,
       nominal: nominal,
       tanggal: tgl
     };
 
-    // 2. Pemasukan ke Akun Tujuan
+    // 2. Pemasukan ke Akun Tujuan (Transfer Masuk - Dicatatkan Tersendiri)
     const txIn = {
       id: `tx-trf-in-${now + 1}`,
       bankId: transferToId,
-      tipe: 'pemasukan',
+      sourceBankId: transferFromId,
+      tipe: 'transfer',
+      transferDirection: 'in',
+      isTransfer: true,
       planId: 'unplanned',
       deskripsi: `Transfer Masuk dari [${fromAcc.name}]${cleanNote}`,
       nominal: nominal,

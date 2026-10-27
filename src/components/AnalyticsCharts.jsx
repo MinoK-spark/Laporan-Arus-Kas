@@ -28,6 +28,7 @@ import {
   BarChart3 
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
+import { isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection } from '../utils/transactionHelper';
 import { ManagementReportModal } from './ManagementReportModal';
 
 const BULAN_NAMES = [
@@ -90,14 +91,14 @@ export function AnalyticsCharts({
         
         // Transactions in this month
         const monthTx = transactions.filter(t => t.tanggal && t.tanggal.startsWith(monthKey));
-        const masuk = monthTx.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-        const keluar = monthTx.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const masuk = monthTx.filter(t => isOperationalIncome(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const keluar = monthTx.filter(t => isOperationalExpense(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
         const netCashflow = masuk - keluar;
 
         // Cumulative running balance up to end of this month (from beginning of time)
         const allTxUpToMonth = transactions.filter(t => t.tanggal && t.tanggal <= `${monthKey}-31`);
-        const cumIn = allTxUpToMonth.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-        const cumOut = allTxUpToMonth.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const cumIn = allTxUpToMonth.filter(t => isOperationalIncome(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const cumOut = allTxUpToMonth.filter(t => isOperationalExpense(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
         const saldoAkhir = totalSaldoAwalMaster + cumIn - cumOut;
 
         monthlyData.push({
@@ -120,13 +121,13 @@ export function AnalyticsCharts({
         const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         
         const dayTx = transactions.filter(t => t.tanggal === dateStr);
-        const masuk = dayTx.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-        const keluar = dayTx.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const masuk = dayTx.filter(t => isOperationalIncome(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const keluar = dayTx.filter(t => isOperationalExpense(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
         // Cumulative running balance up to this date
         const allTxUpToDay = transactions.filter(t => t.tanggal && t.tanggal <= dateStr);
-        const cumIn = allTxUpToDay.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-        const cumOut = allTxUpToDay.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const cumIn = allTxUpToDay.filter(t => isOperationalIncome(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+        const cumOut = allTxUpToDay.filter(t => isOperationalExpense(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
         const saldoAkhir = totalSaldoAwalMaster + cumIn - cumOut;
 
         dailyData.push({
@@ -162,14 +163,14 @@ export function AnalyticsCharts({
 
     return banks.map(bank => {
       const bTx = periodTransactions.filter(t => t.bankId === bank.id);
-      const masuk = bTx.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-      const keluar = bTx.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const masuk = bTx.filter(t => isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const keluar = bTx.filter(t => isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
       const volume = masuk + keluar;
 
       // Cumulative balance of this specific bank up to end of this period
       const allTxForThisBank = transactions.filter(t => t.bankId === bank.id && t.tanggal && t.tanggal <= periodEndDate);
-      const allBankIn = allTxForThisBank.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-      const allBankOut = allTxForThisBank.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const allBankIn = allTxForThisBank.filter(t => isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const allBankOut = allTxForThisBank.filter(t => isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
       const currentSaldoBank = (Number(bank.saldoAwal) || 0) + allBankIn - allBankOut;
 
       return {

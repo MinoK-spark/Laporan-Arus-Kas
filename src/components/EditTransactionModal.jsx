@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
+  ArrowLeftRight,
   X, 
   Edit3, 
   CheckCircle2, 
@@ -67,11 +68,13 @@ export function EditTransactionModal({
 
     const updatedFields = {
       bankId,
-      tipe,
+      tipe: transaction.isTransfer ? 'transfer' : tipe,
       tanggal,
       deskripsi: deskripsi.trim(),
       nominal: parsedNom,
-      planId
+      planId,
+      isTransfer: transaction.isTransfer,
+      transferDirection: transaction.transferDirection
     };
 
     onSave(updatedFields);
@@ -136,6 +139,13 @@ export function EditTransactionModal({
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
               Jenis Mutasi
             </label>
+            {transaction.isTransfer ? (
+              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-2 text-indigo-950 text-xs font-bold">
+                <ArrowLeftRight className="w-4 h-4 text-indigo-600" />
+                <span>Transaksi Internal: {transaction.transferDirection === 'out' ? 'Transfer Keluar' : 'Transfer Masuk'}</span>
+              </div>
+            ) : null}
+            {!transaction.isTransfer && (
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -174,6 +184,7 @@ export function EditTransactionModal({
                 <span>Pengeluaran</span>
               </button>
             </div>
+            )}
           </div>
 
           {/* 3. Deskripsi Transaksi */}

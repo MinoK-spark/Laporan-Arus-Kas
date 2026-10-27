@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Receipt, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet } from 'lucide-react';
+import { Receipt, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 
@@ -7,6 +7,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
   const isViewer = currentUser?.role === 'viewer';
 
   const [bankId, setBankId] = useState(banks[0]?.id || '');
+  const [transferToBankId, setTransferToBankId] = useState('');
   const [tipe, setTipe] = useState('pemasukan'); // IN or OUT
   const [periodeBulan, setPeriodeBulan] = useState(() => {
     const d = new Date();
@@ -24,6 +25,10 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
   // Auto select first bank if available and empty
   useEffect(() => {
     if (!bankId && banks.length > 0) setBankId(banks[0].id);
+    if (!transferToBankId && banks.length > 1) {
+      const dest = banks.find(b => b.id !== (bankId || banks[0]?.id));
+      if (dest) setTransferToBankId(dest.id);
+    }
   }, [banks, bankId]);
 
   // Filter plans based on the chosen toggle AND periodeBulan AND ensure it hasn't been used yet
@@ -210,6 +215,61 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
     const targetBankId = bankId || banks[0]?.id;
     const normDate = (d) => (d ? String(d).trim().substring(0, 10) : '');
 
+    // Khusus Mutasi Pemindahan Dana Antar Akun (Internal Transfer - Dicatatkan Tersendiri)
+    if (tipe === 'transfer') {
+      if (!transferToBankId || transferToBankId === targetBankId) {
+        alert('Silakan pilih rekening tujuan transfer yang berbeda dari rekening asal.');
+        return;
+      }
+      const fromAcc = banks.find(b => b.id === targetBankId);
+      const toAcc = banks.find(b => b.id === transferToBankId);
+      const cleanNote = cleanDeskStr ? ` (${cleanDeskStr})` : '';
+      const now = Date.now();
+
+      const txOut = {
+        id: `tx-trf-out-${now}`,
+        bankId: targetBankId,
+        targetBankId: transferToBankId,
+        tipe: 'transfer',
+        transferDirection: 'out',
+        isTransfer: true,
+        planId: 'unplanned',
+        deskripsi: `Transfer Keluar ke [${toAcc?.name || 'Tujuan'}]${cleanNote}`,
+        nominal: num,
+        tanggal,
+        buktiRef: buktiRef.trim()
+      };
+
+      const txIn = {
+        id: `tx-trf-in-${now + 1}`,
+        bankId: transferToBankId,
+        sourceBankId: targetBankId,
+        tipe: 'transfer',
+        transferDirection: 'in',
+        isTransfer: true,
+        planId: 'unplanned',
+        deskripsi: `Transfer Masuk dari [${fromAcc?.name || 'Asal'}]${cleanNote}`,
+        nominal: num,
+        tanggal,
+        buktiRef: buktiRef.trim()
+      };
+
+      if (onAddTransactions) {
+        onAddTransactions([txOut, txIn]);
+      } else if (onAddTransaction) {
+        onAddTransaction(txOut);
+        onAddTransaction(txIn);
+      }
+
+      setDeskripsi('');
+      setNominalDisplay('');
+      setBuktiRef('');
+      setIsSuccess(true);
+      setTimeout(() => setIsSuccess(false), 3000);
+      alert(`Transfer Antar Akun Berhasil Dicatat!\n\n• Sumber: ${fromAcc?.name} (-${formatRupiah(num)})\n• Tujuan: ${toAcc?.name} (+${formatRupiah(num)})\n• Tanggal: ${tanggal}\n\nCatatan: Dicatatkan tersendiri & tidak memengaruhi omset masuk atau beban keluar operasional.`);
+      return;
+    }
+
     // Duplicate detection against existing data
     const isDuplicate = (transactions || []).some(existingTx => {
       const sameDate = normDate(existingTx.tanggal) === normDate(tanggal);
@@ -320,7 +380,9 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
           {/* Cascading 2: Pilih Bank */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">2. Pilih Rekening Bank / Kas</label>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+              {tipe === 'transfer' ? '2. Rekening Sumber (Asal Dana)' : '2. Pilih Rekening Bank / Kas'}
+            </label>
             <select
               value={bankId}
               onChange={(e) => setBankId(e.target.value)}
@@ -329,78 +391,122 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
               {banks.length === 0 && <option value="">-- Buat Bank Dulu --</option>}
               {banks.map(b => (
                 <option key={b.id} value={b.id}>
-                  {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
+                  {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name} {tipe === 'transfer' ? '(Sumber)' : ''}
                 </option>
               ))}
             </select>
+            {tipe === 'transfer' && (
+              <div className="mt-2.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-indigo-900 mb-1.5">
+                  Rekening Tujuan (Penerima Dana)
+                </label>
+                <select
+                  value={transferToBankId}
+                  onChange={(e) => setTransferToBankId(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm font-semibold bg-indigo-50/70 border border-indigo-200 text-indigo-950 rounded-xl focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="" disabled>-- Pilih Rekening Penerima --</option>
+                  {banks.map(b => (
+                    <option key={b.id} value={b.id} disabled={b.id === bankId}>
+                      {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name} {b.id === bankId ? '(Akun Asal)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Cascading 3: Pilih Tipe */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">3. Jenis Mutasi Kas</label>
-            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
               <button
                 type="button"
                 onClick={() => setTipe('pemasukan')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${tipe === 'pemasukan' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${tipe === 'pemasukan' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
               >
-                <ArrowDownLeft className="w-4 h-4" /> Pemasukan
+                <ArrowDownLeft className="w-3.5 h-3.5" /> Pemasukan
               </button>
               <button
                 type="button"
                 onClick={() => setTipe('pengeluaran')}
-                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${tipe === 'pengeluaran' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${tipe === 'pengeluaran' ? 'bg-rose-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
               >
-                <ArrowUpRight className="w-4 h-4" /> Pengeluaran
+                <ArrowUpRight className="w-3.5 h-3.5" /> Pengeluaran
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipe('transfer')}
+                className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all ${tipe === 'transfer' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                title="Pindah buku / mutasi internal antar rekening"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" /> Antar Bank
               </button>
             </div>
           </div>
 
           {/* Cascading 4: Pilih Forecast */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">4. Terkait Forecast Rencana</label>
-              <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">
-                Menampilkan yang belum terealisasi
-              </span>
-            </div>
-            
-            <select
-              value={planId}
-              onChange={(e) => setPlanId(e.target.value)}
-              className={`w-full px-3 py-2.5 text-sm rounded-xl font-medium border focus:outline-none focus:ring-2 transition-all cursor-pointer ${
-                planId === 'unplanned'
-                  ? 'bg-rose-50/70 border-rose-300 text-rose-900'
-                  : 'bg-slate-50 border-slate-200 text-slate-800'
-              }`}
-            >
-              <option value="unplanned" className="font-semibold text-rose-700 bg-rose-50">
-                -- Transaksi Tambahan (Diluar Forecast) --
-              </option>
-              {availablePlans.map((plan) => (
-                <option key={plan.id} value={plan.id} className="text-slate-800">
-                  {plan.deskripsi} ({formatRupiah(plan.nominal)})
-                </option>
-              ))}
-            </select>
-
-            {planId === 'unplanned' ? (
-              <div className="mt-2 p-2.5 bg-rose-50 border border-rose-200/80 rounded-xl flex items-start gap-2 text-xs text-rose-800">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <div><span className="font-semibold">Perhatian:</span> Transaksi ini dicatat tanpa rencana target (akan ditandai sebagai anomali).</div>
-              </div>
-            ) : (
-              selectedPlan && (
-                <div className="mt-2 p-2 bg-corporate-50 border border-corporate-200/80 rounded-xl text-xs text-corporate-900 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 text-corporate-600" />
-                    <span>Target: <strong>{formatRupiah(selectedPlan.nominal)}</strong></span>
-                  </div>
-                  <span className="text-emerald-600 font-bold">Rencana Tersedia</span>
+          {tipe === 'transfer' ? (
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-indigo-900 mb-1.5">
+                4. Klasifikasi Mutasi Internal
+              </label>
+              <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-xl text-xs text-indigo-900">
+                <div className="font-bold flex items-center gap-1.5 text-indigo-950 mb-1">
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Mutasi Pemindahan Saldo Internal</span>
                 </div>
-              )
-            )}
-          </div>
+                <p className="text-[11px] text-indigo-800/90 leading-relaxed">
+                  Pemindahan dana antar rekening kantor dicatatkan tersendiri & tidak terikat rencana forecast beban atau penerimaan operasional.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">4. Terkait Forecast Rencana</label>
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">
+                  Menampilkan yang belum terealisasi
+                </span>
+              </div>
+              
+              <select
+                value={planId}
+                onChange={(e) => setPlanId(e.target.value)}
+                className={`w-full px-3 py-2.5 text-sm rounded-xl font-medium border focus:outline-none focus:ring-2 transition-all cursor-pointer ${
+                  planId === 'unplanned'
+                    ? 'bg-rose-50/70 border-rose-300 text-rose-900'
+                    : 'bg-slate-50 border-slate-200 text-slate-800'
+                }`}
+              >
+                <option value="unplanned" className="font-semibold text-rose-700 bg-rose-50">
+                  -- Transaksi Tambahan (Diluar Forecast) --
+                </option>
+                {availablePlans.map((plan) => (
+                  <option key={plan.id} value={plan.id} className="text-slate-800">
+                    {plan.deskripsi} ({formatRupiah(plan.nominal)})
+                  </option>
+                ))}
+              </select>
+
+              {planId === 'unplanned' ? (
+                <div className="mt-2 p-2.5 bg-rose-50 border border-rose-200/80 rounded-xl flex items-start gap-2 text-xs text-rose-800">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div><span className="font-semibold">Perhatian:</span> Transaksi ini dicatat tanpa rencana target (akan ditandai sebagai anomali).</div>
+                </div>
+              ) : (
+                selectedPlan && (
+                  <div className="mt-2 p-2 bg-corporate-50 border border-corporate-200/80 rounded-xl text-xs text-corporate-900 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Info className="w-3.5 h-3.5 text-corporate-600" />
+                      <span>Target: <strong>{formatRupiah(selectedPlan.nominal)}</strong></span>
+                    </div>
+                    <span className="text-emerald-600 font-bold">Rencana Tersedia</span>
+                  </div>
+                )
+              )}
+            </div>
+          )}
 
           {/* Deskripsi & Nominal */}
           <div>

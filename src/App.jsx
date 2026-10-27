@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Header } from './components/Header';
 import { MetricCards } from './components/MetricCards';
 import { BankManager } from './components/BankManager';
@@ -16,6 +16,7 @@ import {
   INITIAL_TRANSACTIONS 
 } from './data/initialData';
 import { subscribeToDoc, saveToDoc } from './services/firebase';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from './utils/transactionHelper';
 import { CheckCircle, ShieldAlert, Lock, Printer } from 'lucide-react';
 
 export function App() {
@@ -288,40 +289,52 @@ export function App() {
   }, [banks, transactions]);
 
   // Kalkulasi Rollover Saldo Kas & Mutasi yang Disesuaikan dengan Periode Bulan Terpilih
+  // PENTING: Mutasi internal transfer antar bank/kas TIDAK masuk ke total pemasukan atau total pengeluaran operasional perusahaan
   const dashboardMetrics = useMemo(() => {
     const totalMasterSaldoAwal = banks.reduce((sum, b) => sum + (Number(b.saldoAwal) || 0), 0);
 
     if (!selectedMonth || selectedMonth === 'all') {
-      const masuk = transactions.filter(t => t.tipe === 'pemasukan').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-      const keluar = transactions.filter(t => t.tipe === 'pengeluaran').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      // HANYA mutasi operasional (tidak termasuk transfer internal antar bank)
+      const masuk = transactions.filter(t => isOperationalIncome(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const keluar = transactions.filter(t => isOperationalExpense(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const totalTransfer = transactions.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const transferCount = transactions.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out').length;
       const saldoAkhir = totalMasterSaldoAwal + masuk - keluar;
       return {
         isFilteredMonth: false,
         totalSaldoAwal: totalMasterSaldoAwal,
         totalMasuk: masuk,
         totalKeluar: keluar,
+        totalTransfer,
+        transferCount,
         saldoAkhirKeseluruhan: saldoAkhir
       };
     }
 
     const startOfTargetMonth = `${selectedMonth}-01`;
     const priorIn = transactions
-      .filter(t => t.tipe === 'pemasukan' && t.tanggal && t.tanggal < startOfTargetMonth)
+      .filter(t => isOperationalIncome(t) && t.tanggal && t.tanggal < startOfTargetMonth)
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
     const priorOut = transactions
-      .filter(t => t.tipe === 'pengeluaran' && t.tanggal && t.tanggal < startOfTargetMonth)
+      .filter(t => isOperationalExpense(t) && t.tanggal && t.tanggal < startOfTargetMonth)
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
 
     // Saldo Awal Bulan Terpilih = Saldo Master Awal + Inflow sebelum bulan M - Outflow sebelum bulan M
     const saldoAwalBulanIni = totalMasterSaldoAwal + priorIn - priorOut;
 
-    // Mutasi Pemasukan & Pengeluaran Khusus pada Bulan M
+    // Mutasi Pemasukan & Pengeluaran Khusus pada Bulan M (Eksklusif Operasional)
     const currentIn = transactions
-      .filter(t => t.tipe === 'pemasukan' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .filter(t => isOperationalIncome(t) && t.tanggal && t.tanggal.startsWith(selectedMonth))
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
     const currentOut = transactions
-      .filter(t => t.tipe === 'pengeluaran' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .filter(t => isOperationalExpense(t) && t.tanggal && t.tanggal.startsWith(selectedMonth))
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+    const currentTransfer = transactions
+      .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+    const currentTransferCount = transactions
+      .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .length;
 
     // Saldo Akhir Bulan Terpilih = Saldo Awal Bulan Terpilih + Inflow Bulan M - Outflow Bulan M
     const saldoAkhirBulanIni = saldoAwalBulanIni + currentIn - currentOut;
@@ -331,38 +344,49 @@ export function App() {
       totalSaldoAwal: saldoAwalBulanIni,
       totalMasuk: currentIn,
       totalKeluar: currentOut,
+      totalTransfer: currentTransfer,
+      transferCount: currentTransferCount,
       saldoAkhirKeseluruhan: saldoAkhirBulanIni
     };
   }, [banks, transactions, selectedMonth]);
 
   // Saldo per Rekening Bank Disesuaikan dengan Periode Bulan
+  // Memperhitungkan mutasi operasional DAN mutasi pemindahan dana antar bank untuk rekening tersebut
   const banksWithPeriodBalances = useMemo(() => {
     return banks.map(b => {
       const masterSaldoAwal = Number(b.saldoAwal) || 0;
       if (!selectedMonth || selectedMonth === 'all') {
-        const bIn = transactions.filter(t => t.bankId === b.id && t.tipe === 'pemasukan').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
-        const bOut = transactions.filter(t => t.bankId === b.id && t.tipe === 'pengeluaran').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const bIn = transactions.filter(t => t.bankId === b.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in'))).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const bOut = transactions.filter(t => t.bankId === b.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out'))).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const bTrfIn = transactions.filter(t => t.bankId === b.id && isTransferTransaction(t) && getTransferDirection(t) === 'in').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const bTrfOut = transactions.filter(t => t.bankId === b.id && isTransferTransaction(t) && getTransferDirection(t) === 'out').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
         return {
           ...b,
           saldoAwalPeriode: masterSaldoAwal,
           totalMasukPeriode: bIn,
           totalKeluarPeriode: bOut,
+          transferMasukPeriode: bTrfIn,
+          transferKeluarPeriode: bTrfOut,
           saldoAkhirPeriode: masterSaldoAwal + bIn - bOut
         };
       }
 
       const startOfTargetMonth = `${selectedMonth}-01`;
-      const priorIn = transactions.filter(t => t.bankId === b.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal < startOfTargetMonth).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
-      const priorOut = transactions.filter(t => t.bankId === b.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal < startOfTargetMonth).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const priorIn = transactions.filter(t => t.bankId === b.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')) && t.tanggal && t.tanggal < startOfTargetMonth).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const priorOut = transactions.filter(t => t.bankId === b.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')) && t.tanggal && t.tanggal < startOfTargetMonth).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       const bSaldoAwal = masterSaldoAwal + priorIn - priorOut;
 
-      const bIn = transactions.filter(t => t.bankId === b.id && t.tipe === 'pemasukan' && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
-      const bOut = transactions.filter(t => t.bankId === b.id && t.tipe === 'pengeluaran' && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const bIn = transactions.filter(t => t.bankId === b.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')) && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const bOut = transactions.filter(t => t.bankId === b.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')) && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const bTrfIn = transactions.filter(t => t.bankId === b.id && isTransferTransaction(t) && getTransferDirection(t) === 'in' && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const bTrfOut = transactions.filter(t => t.bankId === b.id && isTransferTransaction(t) && getTransferDirection(t) === 'out' && t.tanggal && t.tanggal.startsWith(selectedMonth)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       return {
         ...b,
         saldoAwalPeriode: bSaldoAwal,
         totalMasukPeriode: bIn,
         totalKeluarPeriode: bOut,
+        transferMasukPeriode: bTrfIn,
+        transferKeluarPeriode: bTrfOut,
         saldoAkhirPeriode: bSaldoAwal + bIn - bOut
       };
     });
@@ -674,6 +698,8 @@ export function App() {
                 proyeksiSaldoAkhir={proyeksiSaldoAkhir}
                 masterForecastMasuk={masterForecastMasuk}
                 masterForecastKeluar={masterForecastKeluar}
+                totalTransfer={dashboardMetrics.totalTransfer}
+                transferCount={dashboardMetrics.transferCount}
                 selectedMonth={selectedMonth}
                 onMonthChange={setSelectedMonth}
                 availableMonths={availableDashboardMonths}

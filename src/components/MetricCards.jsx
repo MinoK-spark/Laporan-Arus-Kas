@@ -1,5 +1,6 @@
 import React from 'react';
 import { 
+  ArrowLeftRight,
   ArrowDownLeft, 
   ArrowUpRight, 
   Wallet, 
@@ -11,6 +12,7 @@ import {
   Filter
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
+import { isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection } from '../utils/transactionHelper';
 
 export const MetricCards = ({ 
   banks = [], 
@@ -23,6 +25,8 @@ export const MetricCards = ({
   totalForecastMasuk = 0,
   totalForecastKeluar = 0,
   proyeksiSaldoAkhir = 0,
+  totalTransfer = 0,
+  transferCount = 0,
   selectedMonth = 'all',
   onMonthChange,
   availableMonths = [],
@@ -44,13 +48,13 @@ export const MetricCards = ({
   const displayBanks = banksWithPeriodBalances.length > 0 ? banksWithPeriodBalances : banks;
 
   const countMasukTx = (transactions || []).filter(t => {
-    if (t.tipe !== 'pemasukan') return false;
+    if (!isOperationalIncome(t)) return false;
     if (isPeriodFiltered && t.tanggal && !t.tanggal.startsWith(selectedMonth)) return false;
     return true;
   }).length;
 
   const countKeluarTx = (transactions || []).filter(t => {
-    if (t.tipe !== 'pengeluaran') return false;
+    if (!isOperationalExpense(t)) return false;
     if (isPeriodFiltered && t.tanggal && !t.tanggal.startsWith(selectedMonth)) return false;
     return true;
   }).length;
@@ -150,7 +154,7 @@ export const MetricCards = ({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold tracking-wider text-emerald-800 uppercase">
-                Total Pemasukan (Aktual)
+                Total Pemasukan Operasional
               </span>
               <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
                 <ArrowDownLeft className="w-5 h-5" />
@@ -200,7 +204,7 @@ export const MetricCards = ({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold tracking-wider text-rose-800 uppercase">
-                Total Pengeluaran (Aktual)
+                Total Pengeluaran Operasional
               </span>
               <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
                 <ArrowUpRight className="w-5 h-5" />

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
 X,
   ArrowUpDown,
+  ArrowLeftRight,
  
   FileSpreadsheet, 
   ChevronDown, 
@@ -21,6 +22,7 @@ X,
   Filter
 } from 'lucide-react';
 import { formatRupiah, parseRupiahInput, formatDateIndo, formatMonthIndo } from '../utils/formatters';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from '../utils/transactionHelper';
 import { downloadExcel } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -156,7 +158,7 @@ export const ReconciliationTable = ({
       const matchesSearch = String(f.deskripsi || '').toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchesSearch) return false;
       
-      if (activeTab === 'anomali') return false;
+      if (activeTab === 'anomali' || activeTab === 'transfer') return false;
       if (activeTab === 'duplikat') {
         const hasDuplicateTx = planTxList.some(t => t.isDuplicate);
         if (!hasDuplicateTx) return false;
@@ -167,6 +169,10 @@ export const ReconciliationTable = ({
     });
   }, [forecasts, planTransactionsMap, searchTerm, filterBankId, filterStartDate, filterEndDate, activeTab]);
 
+  const transferTxCount = useMemo(() => {
+    return unplannedTransactions.filter(t => isTransferTransaction(t)).length;
+  }, [unplannedTransactions]);
+
   const filteredUnplanned = useMemo(() => {
     return unplannedTransactions.filter((t) => {
       const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -175,8 +181,10 @@ export const ReconciliationTable = ({
       if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
       if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
       if (activeTab === 'duplikat' && !t.isDuplicate) return false;
-      if (activeTab === 'pemasukan' && t.tipe !== 'pemasukan') return false;
-      if (activeTab === 'pengeluaran' && t.tipe !== 'pengeluaran') return false;
+      if (activeTab === 'transfer') return isTransferTransaction(t);
+      if (activeTab === 'anomali' && isTransferTransaction(t)) return false;
+      if (activeTab === 'pemasukan' && !isOperationalIncome(t)) return false;
+      if (activeTab === 'pengeluaran' && !isOperationalExpense(t)) return false;
       return true;
     });
   }, [unplannedTransactions, searchTerm, filterBankId, filterStartDate, filterEndDate, activeTab]);
@@ -415,7 +423,7 @@ export const ReconciliationTable = ({
           "No": no++,
           "Kategori": "Transaksi Diluar Forecast (Anomali)",
           "Deskripsi": tx.deskripsi,
-          "Jenis Mutasi": tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+          "Jenis Mutasi": isTransferTransaction(tx) ? (getTransferDirection(tx) === 'out' ? 'Transfer Keluar (Internal)' : 'Transfer Masuk (Internal)') : (tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'),
           "Akun Bank / Kas": getBankName(tx.bankId),
           "Tanggal / Periode": tx.tanggal ? formatDateIndo(tx.tanggal) : "-",
           "Target Nominal (Rp)": 0,
@@ -656,6 +664,13 @@ export const ReconciliationTable = ({
                 className={`px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all ${activeTab === 'anomali' ? 'bg-rose-600 text-white shadow-sm' : 'text-rose-700'}`}
               >
                 <AlertTriangle className="w-3 h-3" /> Anomali Saja
+              </button>
+              <button 
+                onClick={() => setActiveTab('transfer')} 
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all ${activeTab === 'transfer' ? 'bg-indigo-600 text-white shadow-sm font-bold' : 'text-indigo-700 hover:bg-indigo-100/60'}`}
+                title="Tampilkan mutasi pemindahan dana antar akun bank & kas"
+              >
+                <ArrowLeftRight className="w-3 h-3" /> Antar Bank {transferTxCount > 0 ? `(${transferTxCount})` : ''}
               </button>
               {duplicateTxCount > 0 && (
                 <button 
@@ -969,9 +984,24 @@ export const ReconciliationTable = ({
                         </div>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-rose-200/90 text-rose-900 border border-rose-300">
-                          {tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'}
-                        </span>
+                        {isTransferTransaction(tx) ? (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                            getTransferDirection(tx) === 'out'
+                              ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                              : 'bg-cyan-100 text-cyan-900 border-cyan-300'
+                          }`}>
+                            <ArrowLeftRight className="w-3 h-3" />
+                            {getTransferDirection(tx) === 'out' ? 'Transfer Keluar' : 'Transfer Masuk'}
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${
+                            tx.tipe === 'pemasukan' 
+                              ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
+                              : 'bg-rose-200/90 text-rose-900 border-rose-300'
+                          }`}>
+                            {tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right font-mono-num font-semibold text-rose-400">—</td>
                       <td className="py-3 px-4 text-right font-mono-num font-extrabold text-rose-950">{formatRupiah(tx.nominal)}</td>
