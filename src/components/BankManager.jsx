@@ -21,7 +21,7 @@ import { formatRupiah, formatNominalInput, parseRupiahInput, formatDateIndo } fr
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { BankAccountReportModal } from './BankAccountReportModal';
-import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from '../utils/transactionHelper';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense, isKasAccount } from '../utils/transactionHelper';
 
 export const BankManager = ({ 
   banks = [], 
@@ -178,7 +178,7 @@ export const BankManager = ({
     let totalBank = 0;
     let totalKas = 0;
     accountsWithBalances.forEach(acc => {
-      if (acc.tipeAkun === 'kas') {
+      if (isKasAccount(acc)) {
         totalKas += acc.saldoAkhir;
       } else {
         totalBank += acc.saldoAkhir;
@@ -194,10 +194,10 @@ export const BankManager = ({
   // Filter accounts by tab
   const filteredAccounts = useMemo(() => {
     if (activeTab === 'bank') {
-      return accountsWithBalances.filter(a => a.tipeAkun !== 'kas');
+      return accountsWithBalances.filter(a => !isKasAccount(a));
     }
     if (activeTab === 'kas') {
-      return accountsWithBalances.filter(a => a.tipeAkun === 'kas');
+      return accountsWithBalances.filter(a => isKasAccount(a));
     }
     return accountsWithBalances;
   }, [accountsWithBalances, activeTab]);
@@ -327,7 +327,7 @@ export const BankManager = ({
     setEditingAccount({
       id: bank.id,
       name: bank.name || '',
-      tipeAkun: bank.tipeAkun === 'kas' ? 'kas' : 'bank',
+      tipeAkun: isKasAccount(bank) ? 'kas' : 'bank',
       saldoDisplay: formatNominalInput(bank.saldoAwal),
       tanggalSaldoAwal: bank.tanggalSaldoAwal || new Date().toISOString().split('T')[0]
     });
@@ -503,7 +503,7 @@ export const BankManager = ({
             </div>
           </div>
           <span className="text-xs px-2 py-0.5 rounded-md font-bold bg-blue-100 text-blue-700">
-            {banks.filter(b => b.tipeAkun !== 'kas').length} Bank
+            {banks.filter(b => !isKasAccount(b)).length} Bank
           </span>
         </div>
 
@@ -518,7 +518,7 @@ export const BankManager = ({
             </div>
           </div>
           <span className="text-xs px-2 py-0.5 rounded-md font-bold bg-emerald-100 text-emerald-700">
-            {banks.filter(b => b.tipeAkun === 'kas').length} Kas
+            {banks.filter(b => isKasAccount(b)).length} Kas
           </span>
         </div>
 
@@ -738,7 +738,7 @@ export const BankManager = ({
                 }`}
               >
                 <Building className="w-3 h-3" />
-                <span>Bank ({accountsWithBalances.filter(a => a.tipeAkun !== 'kas').length})</span>
+                <span>Bank ({accountsWithBalances.filter(a => !isKasAccount(a)).length})</span>
               </button>
               <button
                 type="button"
@@ -750,7 +750,7 @@ export const BankManager = ({
                 }`}
               >
                 <Wallet className="w-3 h-3" />
-                <span>Kas ({accountsWithBalances.filter(a => a.tipeAkun === 'kas').length})</span>
+                <span>Kas ({accountsWithBalances.filter(a => isKasAccount(a)).length})</span>
               </button>
             </div>
 
@@ -835,7 +835,7 @@ export const BankManager = ({
                 ) : (
                   filteredAccounts.map(account => {
                     const isSelected = selectedIds.includes(account.id);
-                    const isKas = account.tipeAkun === 'kas';
+                    const isKas = isKasAccount(account);
 
                     return (
                       <tr 
@@ -979,7 +979,7 @@ export const BankManager = ({
                   >
                     {banks.map(b => (
                       <option key={b.id} value={b.id}>
-                        {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
+                        {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
                       </option>
                     ))}
                   </select>

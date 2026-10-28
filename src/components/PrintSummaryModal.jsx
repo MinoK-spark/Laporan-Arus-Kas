@@ -1,7 +1,7 @@
 import React from 'react';
 import { Printer, X, Building, Wallet, Calendar, FileText, ArrowDownLeft, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
-import { isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection } from '../utils/transactionHelper';
+import { isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection , isKasAccount } from '../utils/transactionHelper';
 
 export function PrintSummaryModal({
   isOpen,
@@ -217,7 +217,7 @@ export function PrintSummaryModal({
                       </tr>
                     ) : (
                       accountsSummary.map((acc, index) => {
-                        const isKas = acc.tipeAkun === 'kas';
+                        const isKas = isKasAccount(acc);
                         return (
                           <tr key={acc.id} className="hover:bg-slate-50 print:hover:bg-transparent">
                             <td className="py-2 px-3 text-center font-semibold text-slate-500">

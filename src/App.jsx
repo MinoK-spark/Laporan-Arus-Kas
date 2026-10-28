@@ -16,7 +16,7 @@ import {
   INITIAL_TRANSACTIONS 
 } from './data/initialData';
 import { subscribeToDoc, saveToDoc } from './services/firebase';
-import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from './utils/transactionHelper';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense, isKasAccount } from './utils/transactionHelper';
 import { CheckCircle, ShieldAlert, Lock, Printer } from 'lucide-react';
 
 export function App() {
@@ -56,7 +56,19 @@ export function App() {
 
   const [banks, setBanks] = useState(() => {
     const saved = localStorage.getItem('gpe_banks');
-    return saved ? JSON.parse(saved) : INITIAL_BANKS;
+    if (!saved) return INITIAL_BANKS;
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.map(b => ({
+          ...b,
+          tipeAkun: b.tipeAkun || (isKasAccount(b) ? 'kas' : 'bank')
+        }));
+      }
+      return INITIAL_BANKS;
+    } catch {
+      return INITIAL_BANKS;
+    }
   });
 
   const [forecasts, setForecasts] = useState(() => {
@@ -99,14 +111,22 @@ export function App() {
       // 1. Subscribe Banks
       const unsubBanks = subscribeToDoc('banks', (data) => {
         if (data && Array.isArray(data) && data.length > 0) {
-          setBanks(data);
+          const normalized = data.map(b => ({
+            ...b,
+            tipeAkun: b.tipeAkun || (isKasAccount(b) ? 'kas' : 'bank')
+          }));
+          setBanks(normalized);
         } else {
           try {
             const saved = localStorage.getItem('gpe_banks');
             const localBanks = saved ? JSON.parse(saved) : null;
             if (localBanks && Array.isArray(localBanks) && localBanks.length > 0) {
-              saveToDoc('banks', localBanks).catch(() => {});
-              setBanks(localBanks);
+              const normalizedLocal = localBanks.map(b => ({
+                ...b,
+                tipeAkun: b.tipeAkun || (isKasAccount(b) ? 'kas' : 'bank')
+              }));
+              saveToDoc('banks', normalizedLocal).catch(() => {});
+              setBanks(normalizedLocal);
             } else if (data && Array.isArray(data)) {
               setBanks(data);
             }

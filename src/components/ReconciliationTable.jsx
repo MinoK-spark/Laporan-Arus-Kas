@@ -22,7 +22,7 @@ X,
   Filter
 } from 'lucide-react';
 import { formatRupiah, parseRupiahInput, formatDateIndo, formatMonthIndo } from '../utils/formatters';
-import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from '../utils/transactionHelper';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense , isKasAccount } from '../utils/transactionHelper';
 import { downloadExcel } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { EditTransactionModal } from './EditTransactionModal';
@@ -646,7 +646,7 @@ export const ReconciliationTable = ({
               <option value="all">Semua Rekening & Kas</option>
               {banks.map(b => (
                 <option key={b.id} value={b.id}>
-                  {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
+                  {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
                 </option>
               ))}
             </select>

@@ -1,3 +1,4 @@
+import { isKasAccount } from '../utils/transactionHelper';
 import React, { useState, useEffect, useRef } from 'react';
 import { Receipt, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
@@ -54,7 +55,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
   const handleDownloadTemplate = () => {
     const sampleBank = banks[0]?.name || 'Bank BCA';
-    const sampleKas = banks.find(b => b.tipeAkun === 'kas')?.name || 'Kas Operasional';
+    const sampleKas = banks.find(b => isKasAccount(b))?.name || 'Kas Operasional';
     const sampleForecastOut = forecasts.find(f => f.tipe === 'pengeluaran')?.deskripsi || 'Pembelian Alat & Operasional Kantor';
     const sampleForecastIn = forecasts.find(f => f.tipe === 'pemasukan')?.deskripsi || 'Termin 1 Pembayaran Klien';
 
@@ -391,7 +392,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
               {banks.length === 0 && <option value="">-- Buat Bank Dulu --</option>}
               {banks.map(b => (
                 <option key={b.id} value={b.id}>
-                  {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name} {tipe === 'transfer' ? '(Sumber)' : ''}
+                  {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name} {tipe === 'transfer' ? '(Sumber)' : ''}
                 </option>
               ))}
             </select>
@@ -408,7 +409,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
                   <option value="" disabled>-- Pilih Rekening Penerima --</option>
                   {banks.map(b => (
                     <option key={b.id} value={b.id} disabled={b.id === bankId}>
-                      {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name} {b.id === bankId ? '(Akun Asal)' : ''}
+                      {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name} {b.id === bankId ? '(Akun Asal)' : ''}
                     </option>
                   ))}
                 </select>

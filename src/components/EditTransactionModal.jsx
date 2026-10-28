@@ -1,3 +1,4 @@
+import { isKasAccount } from '../utils/transactionHelper';
 import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeftRight,
@@ -128,7 +129,7 @@ export function EditTransactionModal({
             >
               {banks.map(b => (
                 <option key={b.id} value={b.id}>
-                  {b.tipeAkun === 'kas' ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
+                  {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
                 </option>
               ))}
             </select>

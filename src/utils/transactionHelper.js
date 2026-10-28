@@ -37,3 +37,21 @@ export const isOperationalExpense = (t) => {
   if (isTransferTransaction(t)) return false;
   return t.tipe === 'pengeluaran';
 };
+
+// Klasifikasi Akun Kas vs Akun Bank (Mendukung legacy data tanpa tipeAkun)
+export const isKasAccount = (acc) => {
+  if (!acc) return false;
+  if (acc.tipeAkun === 'kas') return true;
+  if (acc.tipeAkun === 'bank') return false;
+  
+  const name = String(acc.name || '').trim().toLowerCase();
+  const id = String(acc.id || '').trim().toLowerCase();
+  return (
+    name === 'kas' ||
+    name.startsWith('kas ') ||
+    name.includes(' kas') ||
+    name.includes('petty') ||
+    name.includes('tunai') ||
+    id.startsWith('kas-')
+  );
+};

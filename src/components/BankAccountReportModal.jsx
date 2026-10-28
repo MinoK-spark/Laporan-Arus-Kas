@@ -18,7 +18,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
-import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense } from '../utils/transactionHelper';
+import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense , isKasAccount } from '../utils/transactionHelper';
 import { downloadExcel } from '../utils/excelHelper';
 
 export function BankAccountReportModal({
@@ -37,7 +37,7 @@ export function BankAccountReportModal({
   const currentDate = new Date().toISOString().split('T')[0];
   const currentTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 
-  const isKas = bank.tipeAkun === 'kas';
+  const isKas = isKasAccount(bank);
   const masterSaldoAwal = Number(bank.saldoAwal) || 0;
 
   // Filter transactions belonging to this bank
