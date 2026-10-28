@@ -19,12 +19,14 @@ X,
   Edit3, 
   Lock,
   CheckCircle2,
-  Filter
+  Filter,
+  ShieldAlert
 } from 'lucide-react';
 import { formatRupiah, parseRupiahInput, formatDateIndo, formatMonthIndo } from '../utils/formatters';
 import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense , isKasAccount } from '../utils/transactionHelper';
 import { downloadExcel } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { BlockedDeleteModal } from './BlockedDeleteModal';
 import { EditTransactionModal } from './EditTransactionModal';
 import { EditForecastModal } from './EditForecastModal';
 
@@ -49,6 +51,13 @@ export const ReconciliationTable = ({
   const [expandedPlans, setExpandedPlans] = useState({});
   const [editingTx, setEditingTx] = useState(null);
   const [editingForecast, setEditingForecast] = useState(null);
+  const [blockedModalState, setBlockedModalState] = useState({
+    isOpen: false,
+    masterName: '',
+    masterType: 'rencana forecast',
+    transactionCount: 0,
+    items: []
+  });
 
   // Default range tanggal: awal periode (tgl 1 bulan ini) sampai hari ini
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -144,6 +153,8 @@ export const ReconciliationTable = ({
     return transactions.filter((t) => t.isDuplicate).length;
   }, [transactions]);
 
+  const cleanSearch = searchTerm.trim().toLowerCase();
+
   const filteredForecasts = useMemo(() => {
     return forecasts.filter((f) => {
       // HANYA TERISI JIKA DATA MUTASI DIINPUT SESUAI FILTER:
@@ -155,8 +166,12 @@ export const ReconciliationTable = ({
       });
       if (planTxList.length === 0) return false;
 
-      const matchesSearch = String(f.deskripsi || '').toLowerCase().includes(searchTerm.toLowerCase());
-      if (!matchesSearch) return false;
+      // Pencarian contain pada deskripsi transaksi atau deskripsi forecast:
+      if (cleanSearch) {
+        const matchesPlanDesc = String(f.deskripsi || '').toLowerCase().includes(cleanSearch);
+        const matchesTxDesc = planTxList.some(t => String(t.deskripsi || '').toLowerCase().includes(cleanSearch));
+        if (!matchesPlanDesc && !matchesTxDesc) return false;
+      }
       
       if (activeTab === 'anomali' || activeTab === 'transfer') return false;
       if (activeTab === 'duplikat') {
@@ -167,7 +182,7 @@ export const ReconciliationTable = ({
       if (activeTab === 'pengeluaran' && f.tipe !== 'pengeluaran') return false;
       return true;
     });
-  }, [forecasts, planTransactionsMap, searchTerm, filterBankId, filterStartDate, filterEndDate, activeTab]);
+  }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab]);
 
   const transferTxCount = useMemo(() => {
     return unplannedTransactions.filter(t => isTransferTransaction(t)).length;
@@ -175,8 +190,11 @@ export const ReconciliationTable = ({
 
   const filteredUnplanned = useMemo(() => {
     return unplannedTransactions.filter((t) => {
-      const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(searchTerm.toLowerCase());
-      if (!matchesSearch) return false;
+      // Pencarian contain pada deskripsi transaksi:
+      if (cleanSearch) {
+        const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
+        if (!matchesSearch) return false;
+      }
       if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
       if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
       if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
@@ -187,7 +205,23 @@ export const ReconciliationTable = ({
       if (activeTab === 'pengeluaran' && !isOperationalExpense(t)) return false;
       return true;
     });
-  }, [unplannedTransactions, searchTerm, filterBankId, filterStartDate, filterEndDate, activeTab]);
+  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab]);
+
+  // Otomatis expand forecast yang memiliki transaksi/rencana yang cocok dengan pencarian deskripsi
+  useEffect(() => {
+    if (cleanSearch) {
+      const autoExpand = {};
+      forecasts.forEach(f => {
+        const planTxList = planTransactionsMap[f.id] || [];
+        const matchesPlan = String(f.deskripsi || '').toLowerCase().includes(cleanSearch);
+        const matchesTx = planTxList.some(t => String(t.deskripsi || '').toLowerCase().includes(cleanSearch));
+        if (matchesPlan || matchesTx) {
+          autoExpand[f.id] = true;
+        }
+      });
+      setExpandedPlans(prev => ({ ...prev, ...autoExpand }));
+    }
+  }, [cleanSearch, forecasts, planTransactionsMap]);
 
   // Sort: Berdasarkan Tanggal (sortDateOrder) dan Tipe Mutasi
   const sortedForecasts = useMemo(() => {
@@ -255,6 +289,18 @@ export const ReconciliationTable = ({
   // Single delete triggers
   const handleTriggerDeletePlan = (e, plan) => {
     e.stopPropagation();
+    const subTx = planTransactionsMap[plan.id] || [];
+    if (subTx.length > 0) {
+      setBlockedModalState({
+        isOpen: true,
+        masterName: plan.deskripsi || 'Rencana Kas',
+        masterType: 'rencana forecast',
+        transactionCount: subTx.length,
+        items: []
+      });
+      return;
+    }
+
     setDeleteModalState({
       isOpen: true,
       isBatch: false,
@@ -267,7 +313,7 @@ export const ReconciliationTable = ({
       }],
       title: 'Validasi Hapus Rencana Kas',
       itemType: 'Rencana Kas',
-      warningText: "Tindakan ini tidak dapat dibatalkan. Realisasi transaksi terkait akan dialihkan ke status 'Diluar Rencana' (Unplanned)."
+      warningText: "Tindakan ini tidak dapat dibatalkan. Data rencana forecast akan dihapus permanen."
     });
   };
 
@@ -292,6 +338,33 @@ export const ReconciliationTable = ({
   // Batch delete trigger
   const handleTriggerBatchDelete = () => {
     if (selectedRowIds.length === 0) return;
+
+    // Cegah penghapusan master forecast yang memiliki transaksi
+    const blockedPlans = [];
+    selectedRowIds.forEach(id => {
+      const plan = forecasts.find(f => f.id === id);
+      if (plan) {
+        const subTx = planTransactionsMap[plan.id] || [];
+        if (subTx.length > 0) {
+          blockedPlans.push({
+            name: plan.deskripsi || 'Rencana Kas',
+            count: subTx.length,
+            detail: `${plan.tipe} • ${formatBulan(plan.periodeBulan)}`
+          });
+        }
+      }
+    });
+
+    if (blockedPlans.length > 0) {
+      setBlockedModalState({
+        isOpen: true,
+        masterName: '',
+        masterType: 'rencana forecast',
+        transactionCount: blockedPlans.reduce((sum, p) => sum + p.count, 0),
+        items: blockedPlans
+      });
+      return;
+    }
 
     const itemsToDisplay = [];
     selectedRowIds.forEach(id => {
@@ -683,16 +756,26 @@ export const ReconciliationTable = ({
               )}
             </div>
 
-            {/* Input Search */}
+            {/* Input Search Bersifat Contain dari Deskripsi */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Cari transaksi..."
-                className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 outline-none w-40 sm:w-48"
+                placeholder="Cari deskripsi transaksi..."
+                className="pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-corporate-500 outline-none w-48 sm:w-64 shadow-2xs transition-all"
               />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  title="Hapus kata kunci pencarian"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -784,6 +867,11 @@ export const ReconciliationTable = ({
                 if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
                 if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
                 if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+                if (cleanSearch) {
+                  const matchesPlan = String(plan.deskripsi || '').toLowerCase().includes(cleanSearch);
+                  const matchesTx = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
+                  if (!matchesPlan && !matchesTx) return false;
+                }
                 return true;
               });
               const subTransactions = [...rawSub].sort((a, b) => {
@@ -856,13 +944,27 @@ export const ReconciliationTable = ({
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={(e) => handleTriggerDeletePlan(e, plan)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                            title="Hapus Rencana"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {(() => {
+                            const subTxCount = (planTransactionsMap[plan.id] || []).length;
+                            return (
+                              <button
+                                onClick={(e) => handleTriggerDeletePlan(e, plan)}
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer relative ${
+                                  subTxCount > 0 
+                                    ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50' 
+                                    : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                                }`}
+                                title={subTxCount > 0 ? `Terkunci: Memiliki ${subTxCount} transaksi realisasi` : 'Hapus Rencana'}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                {subTxCount > 0 && (
+                                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 text-white rounded-full flex items-center justify-center text-[8px] font-bold shadow-2xs">
+                                    <Lock className="w-2 h-2" />
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })()}
                         </div>
                       )}
                     </td>
@@ -1088,6 +1190,17 @@ export const ReconciliationTable = ({
         items={deleteModalState.items}
         isBatch={deleteModalState.isBatch}
         warningText={deleteModalState.warningText}
+      />
+
+      {/* Modal Peringatan Data Master Terkunci dari Penghapusan */}
+      <BlockedDeleteModal
+        isOpen={blockedModalState.isOpen}
+        onClose={() => setBlockedModalState(prev => ({ ...prev, isOpen: false }))}
+        title="Rencana Forecast Tidak Dapat Dihapus"
+        masterType={blockedModalState.masterType}
+        masterName={blockedModalState.masterName}
+        transactionCount={blockedModalState.transactionCount}
+        items={blockedModalState.items}
       />
     </div>
   );

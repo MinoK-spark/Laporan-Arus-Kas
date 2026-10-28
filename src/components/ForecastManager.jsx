@@ -18,13 +18,18 @@ import {
   ArrowRight,
   TrendingUp,
   Scale,
-  Coins
+  Coins,
+  Eye,
+  ShieldAlert
 } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { BlockedDeleteModal } from './BlockedDeleteModal';
+import { ForecastTransactionsModal } from './ForecastTransactionsModal';
 
 export const ForecastManager = ({ 
+  banks = [],
   forecasts = [], 
   transactions = [], 
   onAddForecast, 
@@ -57,6 +62,14 @@ export const ForecastManager = ({
 
   // Edit Modal State
   const [editingPlan, setEditingPlan] = useState(null);
+  const [viewingPlanTransactions, setViewingPlanTransactions] = useState(null);
+  const [blockedModalState, setBlockedModalState] = useState({
+    isOpen: false,
+    masterName: '',
+    masterType: 'rencana forecast',
+    transactionCount: 0,
+    items: []
+  });
 
   // Filters & Search
   const [filterPeriode, setFilterPeriode] = useState('all');
@@ -157,6 +170,18 @@ export const ForecastManager = ({
   };
 
   const handleTriggerSingleDelete = (plan) => {
+    const linkedTx = (transactions || []).filter(t => t.planId === plan.id);
+    if (linkedTx.length > 0) {
+      setBlockedModalState({
+        isOpen: true,
+        masterName: plan.deskripsi,
+        masterType: 'rencana forecast',
+        transactionCount: linkedTx.length,
+        items: []
+      });
+      return;
+    }
+
     setDeleteModalState({
       isOpen: true,
       isBatch: false,
@@ -171,6 +196,28 @@ export const ForecastManager = ({
 
   const handleTriggerBatchDelete = () => {
     const selectedPlans = (forecasts || []).filter(f => selectedIds.includes(f.id));
+    const plansWithTx = selectedPlans
+      .map(f => {
+        const count = (transactions || []).filter(t => t.planId === f.id).length;
+        return { ...f, count };
+      })
+      .filter(f => f.count > 0);
+
+    if (plansWithTx.length > 0) {
+      setBlockedModalState({
+        isOpen: true,
+        masterName: '',
+        masterType: 'rencana forecast',
+        transactionCount: plansWithTx.reduce((sum, f) => sum + f.count, 0),
+        items: plansWithTx.map(f => ({
+          name: f.deskripsi,
+          count: f.count,
+          detail: `${f.tipe} • ${formatBulan(f.periodeBulan)}`
+        }))
+      });
+      return;
+    }
+
     setDeleteModalState({
       isOpen: true,
       isBatch: true,
@@ -741,16 +788,29 @@ export const ForecastManager = ({
                         <td className="py-3 px-4 text-right font-mono-num font-bold text-slate-900">
                           {formatRupiah(plan.nominal)}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono-num font-bold text-emerald-700">
-                          {formatRupiah(realisasi)}
-                          <div className="w-full bg-slate-100 h-1 rounded-full mt-1.5 overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full transition-all ${
-                                plan.tipe === 'pemasukan' ? 'bg-emerald-600' : 'bg-corporate-700'
-                              }`}
-                              style={{ width: `${persentase}%` }}
-                            />
-                          </div>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setViewingPlanTransactions(plan)}
+                            className="w-full text-right group/real cursor-pointer"
+                            title={`Klik untuk melihat ${transactions.filter(t => t.planId === plan.id).length} transaksi terkait`}
+                          >
+                            <div className="font-mono-num font-bold text-emerald-700 group-hover/real:text-emerald-800 group-hover/real:underline flex items-center justify-end gap-1">
+                              <span>{formatRupiah(realisasi)}</span>
+                              <Eye className="w-3.5 h-3.5 opacity-0 group-hover/real:opacity-100 transition-opacity" />
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all ${
+                                  plan.tipe === 'pemasukan' ? 'bg-emerald-600' : 'bg-corporate-700'
+                                }`}
+                                style={{ width: `${persentase}%` }}
+                              />
+                            </div>
+                            <div className="text-[10px] text-slate-400 group-hover/real:text-corporate-700 font-normal mt-0.5">
+                              {transactions.filter(t => t.planId === plan.id).length} transaksi
+                            </div>
+                          </button>
                         </td>
                         <td className={`py-3 px-4 text-right font-mono-num font-bold text-xs ${
                           sisa < 0 ? 'text-rose-600' : 'text-slate-600'
@@ -761,7 +821,21 @@ export const ForecastManager = ({
                           </div>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <div className="flex items-center justify-center gap-1">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {/* Tombol Lihat Transaksi Terkait */}
+                            <button
+                              type="button"
+                              onClick={() => setViewingPlanTransactions(plan)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-corporate-700 bg-corporate-50 hover:bg-corporate-100 rounded-lg transition-colors cursor-pointer"
+                              title={`Lihat ${transactions.filter(t => t.planId === plan.id).length} transaksi terkait rencana ini`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span className="hidden xl:inline">Transaksi</span>
+                              <span className="bg-corporate-200/80 text-corporate-900 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                                {transactions.filter(t => t.planId === plan.id).length}
+                              </span>
+                            </button>
+
                             {!isViewer ? (
                               <>
                                 <button
@@ -772,14 +846,28 @@ export const ForecastManager = ({
                                 >
                                   <Edit3 className="w-4 h-4" />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleTriggerSingleDelete(plan)}
-                                  className="text-rose-600 hover:text-rose-800 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                                  title="Hapus Rencana"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {(() => {
+                                  const txCount = (transactions || []).filter(t => t.planId === plan.id).length;
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTriggerSingleDelete(plan)}
+                                      className={`p-1.5 rounded-lg transition-colors cursor-pointer relative ${
+                                        txCount > 0 
+                                          ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50' 
+                                          : 'text-rose-600 hover:text-rose-800 hover:bg-rose-50'
+                                      }`}
+                                      title={txCount > 0 ? `Terkunci: Memiliki ${txCount} transaksi terkait` : 'Hapus Rencana'}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                      {txCount > 0 && (
+                                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 text-white rounded-full flex items-center justify-center text-[8px] font-bold shadow-2xs">
+                                          <Lock className="w-2 h-2" />
+                                        </span>
+                                      )}
+                                    </button>
+                                  );
+                                })()}
                               </>
                             ) : (
                               <span className="text-slate-300 p-1.5" title="Terkunci (Hanya Lihat)">
@@ -918,7 +1006,27 @@ export const ForecastManager = ({
         itemType="Rencana Kas"
         items={deleteModalState.items}
         isBatch={deleteModalState.isBatch}
-        warningText="Tindakan ini tidak dapat dibatalkan. Realisasi transaksi yang terhubung dengan rencana ini akan dialihkan ke status 'Diluar Rencana' (Unplanned)."
+        warningText="Tindakan ini tidak dapat dibatalkan. Data rencana forecast akan dihapus permanen."
+      />
+
+      {/* Modal Lihat Transaksi Terkait Forecast */}
+      <ForecastTransactionsModal
+        isOpen={!!viewingPlanTransactions}
+        onClose={() => setViewingPlanTransactions(null)}
+        forecast={viewingPlanTransactions}
+        transactions={transactions}
+        banks={banks}
+      />
+
+      {/* Modal Peringatan Data Master Terkunci dari Penghapusan */}
+      <BlockedDeleteModal
+        isOpen={blockedModalState.isOpen}
+        onClose={() => setBlockedModalState(prev => ({ ...prev, isOpen: false }))}
+        title="Rencana Forecast Tidak Dapat Dihapus"
+        masterType={blockedModalState.masterType}
+        masterName={blockedModalState.masterName}
+        transactionCount={blockedModalState.transactionCount}
+        items={blockedModalState.items}
       />
     </div>
   );

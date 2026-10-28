@@ -15,11 +15,13 @@ import {
   X, 
   ArrowRight,
   Landmark,
-  Coins
+  Coins,
+  ShieldAlert
 } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput, formatDateIndo } from '../utils/formatters';
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
+import { BlockedDeleteModal } from './BlockedDeleteModal';
 import { BankAccountReportModal } from './BankAccountReportModal';
 import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense, isKasAccount } from '../utils/transactionHelper';
 
@@ -49,6 +51,13 @@ export const BankManager = ({
   const [activeTab, setActiveTab] = useState('all');
   const [filterPeriode, setFilterPeriode] = useState('all');
   const [reportModalAccount, setReportModalAccount] = useState(null);
+  const [blockedModalState, setBlockedModalState] = useState({
+    isOpen: false,
+    masterName: '',
+    masterType: 'rekening bank/kas',
+    transactionCount: 0,
+    items: []
+  });
 
   // Available unique periods
   const availablePeriods = useMemo(() => {
@@ -221,6 +230,20 @@ export const BankManager = ({
   };
 
   const handleTriggerSingleDelete = (bank) => {
+    const linkedTx = (transactions || []).filter(t => 
+      t.bankId === bank.id || t.transferToBankId === bank.id || t.relatedBankId === bank.id
+    );
+    if (linkedTx.length > 0) {
+      setBlockedModalState({
+        isOpen: true,
+        masterName: bank.name,
+        masterType: isKasAccount(bank) ? 'akun kas' : 'rekening bank',
+        transactionCount: linkedTx.length,
+        items: []
+      });
+      return;
+    }
+
     setDeleteModalState({
       isOpen: true,
       isBatch: false,
@@ -228,13 +251,37 @@ export const BankManager = ({
       targetIds: [bank.id],
       items: [{
         name: bank.name,
-        detail: `${bank.tipeAkun === 'kas' ? 'Kas' : 'Bank'} • Saldo Awal: ${formatRupiah(bank.saldoAwal)}`
+        detail: `${isKasAccount(bank) ? 'Kas' : 'Bank'} • Saldo Awal: ${formatRupiah(bank.saldoAwal)}`
       }]
     });
   };
 
   const handleTriggerBatchDelete = () => {
-    const selectedBanks = banks.filter(b => selectedIds.includes(b.id));
+    const selectedBanks = (banks || []).filter(b => selectedIds.includes(b.id));
+    const banksWithTx = selectedBanks
+      .map(b => {
+        const count = (transactions || []).filter(t => 
+          t.bankId === b.id || t.transferToBankId === b.id || t.relatedBankId === b.id
+        ).length;
+        return { ...b, count };
+      })
+      .filter(b => b.count > 0);
+
+    if (banksWithTx.length > 0) {
+      setBlockedModalState({
+        isOpen: true,
+        masterName: '',
+        masterType: 'rekening bank / kas',
+        transactionCount: banksWithTx.reduce((sum, b) => sum + b.count, 0),
+        items: banksWithTx.map(b => ({
+          name: b.name,
+          count: b.count,
+          detail: `${isKasAccount(b) ? 'Kas' : 'Bank'}`
+        }))
+      });
+      return;
+    }
+
     setDeleteModalState({
       isOpen: true,
       isBatch: true,
@@ -242,7 +289,7 @@ export const BankManager = ({
       targetIds: selectedIds,
       items: selectedBanks.map(b => ({
         name: b.name,
-        detail: `${b.tipeAkun === 'kas' ? 'Kas' : 'Bank'} • Saldo Awal: ${formatRupiah(b.saldoAwal)}`
+        detail: `${isKasAccount(b) ? 'Kas' : 'Bank'} • Saldo Awal: ${formatRupiah(b.saldoAwal)}`
       }))
     });
   };
@@ -908,14 +955,30 @@ export const BankManager = ({
                                 >
                                   <Edit3 className="w-4 h-4" />
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleTriggerSingleDelete(account)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                                  title="Hapus Akun"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {(() => {
+                                  const txCount = (transactions || []).filter(t => 
+                                    t.bankId === account.id || t.transferToBankId === account.id || t.relatedBankId === account.id
+                                  ).length;
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleTriggerSingleDelete(account)}
+                                      className={`p-1.5 rounded-lg transition-colors cursor-pointer relative ${
+                                        txCount > 0 
+                                          ? 'text-slate-400 hover:text-amber-600 hover:bg-amber-50' 
+                                          : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                                      }`}
+                                      title={txCount > 0 ? `Terkunci: Memiliki ${txCount} transaksi aktif` : 'Hapus Akun'}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                      {txCount > 0 && (
+                                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 text-white rounded-full flex items-center justify-center text-[8px] font-bold shadow-2xs">
+                                          <Lock className="w-2 h-2" />
+                                        </span>
+                                      )}
+                                    </button>
+                                  );
+                                })()}
                               </>
                             ) : null}
                           </div>
@@ -1238,7 +1301,18 @@ export const BankManager = ({
         itemType="Akun Bank/Kas"
         items={deleteModalState.items}
         isBatch={deleteModalState.isBatch}
-        warningText="Menghapus akun bank atau kas ini akan berdampak pada transaksi mutasi kas yang telah dicatat menggunakan akun tersebut."
+        warningText="Tindakan ini tidak dapat dibatalkan. Akun bank/kas akan dihapus secara permanen."
+      />
+
+      {/* Modal Peringatan Data Master Terkunci dari Penghapusan */}
+      <BlockedDeleteModal
+        isOpen={blockedModalState.isOpen}
+        onClose={() => setBlockedModalState(prev => ({ ...prev, isOpen: false }))}
+        title="Akun Bank / Kas Tidak Dapat Dihapus"
+        masterType={blockedModalState.masterType}
+        masterName={blockedModalState.masterName}
+        transactionCount={blockedModalState.transactionCount}
+        items={blockedModalState.items}
       />
     </div>
   );

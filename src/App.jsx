@@ -475,6 +475,13 @@ export function App() {
   
   const handleDeleteBanksBatch = (bankIds) => {
     if (currentUser?.role === 'viewer' || !bankIds?.length) return;
+    const blockedBanks = banks.filter(b => 
+      bankIds.includes(b.id) && transactions.some(t => t.bankId === b.id || t.transferToBankId === b.id || t.relatedBankId === b.id)
+    );
+    if (blockedBanks.length > 0) {
+      alert(`Peringatan: ${blockedBanks.length} rekening tidak dapat dihapus karena sudah memiliki riwayat transaksi mutasi kas.`);
+      return;
+    }
     const idSet = new Set(bankIds);
     const updated = banks.filter(b => !idSet.has(b.id));
     setBanks(updated);
@@ -484,6 +491,11 @@ export function App() {
 
   const handleDeleteBank = (bankId) => {
     if (currentUser?.role === 'viewer') return;
+    const hasTx = transactions.some(t => t.bankId === bankId || t.transferToBankId === bankId || t.relatedBankId === bankId);
+    if (hasTx) {
+      alert('Peringatan: Rekening ini tidak dapat dihapus karena sudah memiliki riwayat transaksi mutasi kas.');
+      return;
+    }
     const updated = banks.filter(b => b.id !== bankId);
     setBanks(updated);
     saveToDoc('banks', updated).catch(() => {});
@@ -521,24 +533,30 @@ export function App() {
   
   const handleDeleteForecastsBatch = (forecastIds) => {
     if (currentUser?.role === 'viewer' || !forecastIds?.length) return;
+    const blockedForecasts = forecasts.filter(f => 
+      forecastIds.includes(f.id) && transactions.some(t => t.planId === f.id)
+    );
+    if (blockedForecasts.length > 0) {
+      alert(`Peringatan: ${blockedForecasts.length} rencana forecast tidak dapat dihapus karena sudah terhubung dengan transaksi mutasi kas.`);
+      return;
+    }
     const idSet = new Set(forecastIds);
     const updated = forecasts.filter(f => !idSet.has(f.id));
-    const updatedTx = transactions.map(t => idSet.has(t.planId) ? { ...t, planId: 'unplanned' } : t);
     setForecasts(updated);
-    setTransactions(updatedTx);
     saveToDoc('forecasts', updated).catch(() => {});
-    saveToDoc('transactions', updatedTx).catch(() => {});
     showNotification(`${forecastIds.length} rencana forecast berhasil dihapus.`);
   };
 
   const handleDeleteForecast = (planId) => {
     if (currentUser?.role === 'viewer') return;
+    const hasTx = transactions.some(t => t.planId === planId);
+    if (hasTx) {
+      alert('Peringatan: Rencana forecast ini tidak dapat dihapus karena sudah terhubung dengan transaksi mutasi kas.');
+      return;
+    }
     const updated = forecasts.filter(f => f.id !== planId);
-    const updatedTx = transactions.map(t => t.planId === planId ? { ...t, planId: 'unplanned' } : t);
     setForecasts(updated);
-    setTransactions(updatedTx);
     saveToDoc('forecasts', updated).catch(() => {});
-    saveToDoc('transactions', updatedTx).catch(() => {});
     showNotification('Rencana forecast berhasil dihapus.');
   };
 
@@ -777,6 +795,7 @@ export function App() {
         {activeTab === 'forecasts' && (
           <section>
             <ForecastManager
+              banks={banks}
               forecasts={forecasts}
               transactions={transactions}
               onAddForecast={handleAddForecast}
