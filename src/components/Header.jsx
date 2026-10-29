@@ -16,7 +16,8 @@ import {
   CloudCheck,
   CloudOff,
   Radio,
-  BarChart3
+  BarChart3,
+  FileText
 } from 'lucide-react';
 import { formatDateIndo } from '../utils/formatters';
 
@@ -187,6 +188,13 @@ export const Header = ({
             className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'analytics' ? 'bg-corporate-700 text-white' : 'text-corporate-200 hover:bg-corporate-800'}`}
           >
             <BarChart3 className="w-4 h-4" /> Grafik & Analisis
+          </button>
+
+          <button
+            onClick={() => setActiveTab('report')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'report' ? 'bg-corporate-700 text-white' : 'text-corporate-200 hover:bg-corporate-800'}`}
+          >
+            <FileText className="w-4 h-4" /> Laporan Kas
           </button>
         </nav>
       </div>

@@ -46,7 +46,7 @@ export const ReconciliationTable = ({
 }) => {
   const isViewer = currentUser?.role === 'viewer';
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // 'all', 'pemasukan', 'pengeluaran', 'anomali'
+  const [activeTab, setActiveTab] = useState('all'); // 'all', 'forecast', 'non_forecast', 'duplikat'
   const [filterBankId, setFilterBankId] = useState('all');
   const [expandedPlans, setExpandedPlans] = useState({});
   const [editingTx, setEditingTx] = useState(null);
@@ -155,6 +155,37 @@ export const ReconciliationTable = ({
 
   const cleanSearch = searchTerm.trim().toLowerCase();
 
+  const availableForecastCount = useMemo(() => {
+    return forecasts.filter((f) => {
+      const planTxList = (planTransactionsMap[f.id] || []).filter(t => {
+        if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+        if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+        if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+        return true;
+      });
+      if (planTxList.length === 0) return false;
+      if (cleanSearch) {
+        const matchesPlanDesc = String(f.deskripsi || '').toLowerCase().includes(cleanSearch);
+        const matchesTxDesc = planTxList.some(t => String(t.deskripsi || '').toLowerCase().includes(cleanSearch));
+        if (!matchesPlanDesc && !matchesTxDesc) return false;
+      }
+      return true;
+    }).length;
+  }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate]);
+
+  const availableNonForecastCount = useMemo(() => {
+    return unplannedTransactions.filter((t) => {
+      if (cleanSearch) {
+        const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
+        if (!matchesSearch) return false;
+      }
+      if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+      if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+      if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+      return true;
+    }).length;
+  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate]);
+
   const filteredForecasts = useMemo(() => {
     return forecasts.filter((f) => {
       // HANYA TERISI JIKA DATA MUTASI DIINPUT SESUAI FILTER:
@@ -173,7 +204,7 @@ export const ReconciliationTable = ({
         if (!matchesPlanDesc && !matchesTxDesc) return false;
       }
       
-      if (activeTab === 'anomali' || activeTab === 'transfer') return false;
+      if (activeTab === 'non_forecast' || activeTab === 'anomali' || activeTab === 'transfer') return false;
       if (activeTab === 'duplikat') {
         const hasDuplicateTx = planTxList.some(t => t.isDuplicate);
         if (!hasDuplicateTx) return false;
@@ -183,10 +214,6 @@ export const ReconciliationTable = ({
       return true;
     });
   }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab]);
-
-  const transferTxCount = useMemo(() => {
-    return unplannedTransactions.filter(t => isTransferTransaction(t)).length;
-  }, [unplannedTransactions]);
 
   const filteredUnplanned = useMemo(() => {
     return unplannedTransactions.filter((t) => {
@@ -198,6 +225,7 @@ export const ReconciliationTable = ({
       if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
       if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
       if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+      if (activeTab === 'forecast') return false;
       if (activeTab === 'duplikat' && !t.isDuplicate) return false;
       if (activeTab === 'transfer') return isTransferTransaction(t);
       if (activeTab === 'anomali' && isTransferTransaction(t)) return false;
@@ -257,14 +285,16 @@ export const ReconciliationTable = ({
   // Calculate all selectable IDs currently visible
   const allVisibleIds = useMemo(() => {
     const ids = [];
-    if (activeTab !== 'anomali') {
+    if (activeTab !== 'anomali' && activeTab !== 'non_forecast') {
       sortedForecasts.forEach(plan => {
         ids.push(plan.id);
         const subTx = planTransactionsMap[plan.id] || [];
         subTx.forEach(tx => ids.push(tx.id));
       });
     }
-    sortedUnplanned.forEach(tx => ids.push(tx.id));
+    if (activeTab !== 'forecast') {
+      sortedUnplanned.forEach(tx => ids.push(tx.id));
+    }
     return ids;
   }, [sortedForecasts, sortedUnplanned, planTransactionsMap, activeTab]);
 
@@ -724,34 +754,55 @@ export const ReconciliationTable = ({
               ))}
             </select>
 
-            {/* Filter Tab: Semua, Anomali */}
+            {/* Filter Tab: Semua, Forecast, Transaksi Non Forecast */}
             <div className="flex items-center p-1 bg-slate-200/70 rounded-xl text-xs font-semibold text-slate-600">
               <button 
+                type="button"
                 onClick={() => setActiveTab('all')} 
-                className={`px-2.5 py-1 rounded-lg cursor-pointer transition-all ${activeTab === 'all' ? 'bg-white text-slate-900 shadow-sm' : ''}`}
+                className={`px-2.5 py-1 rounded-lg cursor-pointer transition-all ${activeTab === 'all' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'hover:text-slate-900'}`}
               >
                 Semua
               </button>
               <button 
-                onClick={() => setActiveTab('anomali')} 
-                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all ${activeTab === 'anomali' ? 'bg-rose-600 text-white shadow-sm' : 'text-rose-700'}`}
+                type="button"
+                onClick={() => setActiveTab('forecast')} 
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all ${activeTab === 'forecast' ? 'bg-corporate-900 text-white shadow-sm font-bold' : 'text-slate-700 hover:bg-slate-300/50'}`}
+                title="Tampilkan hanya rencana dan realisasi forecast"
               >
-                <AlertTriangle className="w-3 h-3" /> Anomali Saja
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Forecast</span>
+                {availableForecastCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'forecast' ? 'bg-corporate-700 text-corporate-100' : 'bg-slate-300 text-slate-700'}`}>
+                    {availableForecastCount}
+                  </span>
+                )}
               </button>
               <button 
-                onClick={() => setActiveTab('transfer')} 
-                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all ${activeTab === 'transfer' ? 'bg-indigo-600 text-white shadow-sm font-bold' : 'text-indigo-700 hover:bg-indigo-100/60'}`}
-                title="Tampilkan mutasi pemindahan dana antar akun bank & kas"
+                type="button"
+                onClick={() => setActiveTab('non_forecast')} 
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all ${activeTab === 'non_forecast' ? 'bg-rose-600 text-white shadow-sm font-bold' : 'text-rose-700 hover:bg-rose-100/60'}`}
+                title="Tampilkan transaksi mutasi diluar forecast"
               >
-                <ArrowLeftRight className="w-3 h-3" /> Antar Bank {transferTxCount > 0 ? `(${transferTxCount})` : ''}
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                <span>Transaksi Non Forecast</span>
+                {availableNonForecastCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'non_forecast' ? 'bg-rose-700 text-white' : 'bg-rose-200 text-rose-800'}`}>
+                    {availableNonForecastCount}
+                  </span>
+                )}
               </button>
               {duplicateTxCount > 0 && (
                 <button 
+                  type="button"
                   onClick={() => setActiveTab('duplikat')} 
-                  className={`px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all ${activeTab === 'duplikat' ? 'bg-amber-500 text-white shadow-sm font-bold' : 'text-amber-700 hover:bg-amber-100/60'}`}
+                  className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all ${activeTab === 'duplikat' ? 'bg-amber-500 text-white shadow-sm font-bold' : 'text-amber-700 hover:bg-amber-100/60'}`}
                   title="Tampilkan transaksi yang terdeteksi duplikat"
                 >
-                  <AlertTriangle className="w-3 h-3 text-amber-500" /> Duplikat ({duplicateTxCount})
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> 
+                  <span>Duplikat</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'duplikat' ? 'bg-amber-600 text-white' : 'bg-amber-200 text-amber-800'}`}>
+                    {duplicateTxCount}
+                  </span>
                 </button>
               )}
             </div>
@@ -847,7 +898,9 @@ export const ReconciliationTable = ({
           </thead>
           <tbody className="divide-y divide-slate-200">
             {/* Empty State jika belum ada mutasi transaksi yang diinput */}
-            {((activeTab !== 'anomali' && sortedForecasts.length === 0 && sortedUnplanned.length === 0) || (activeTab === 'anomali' && sortedUnplanned.length === 0)) && (
+            {((activeTab !== 'anomali' && activeTab !== 'non_forecast' && sortedForecasts.length === 0 && sortedUnplanned.length === 0) || 
+              ((activeTab === 'anomali' || activeTab === 'non_forecast') && sortedUnplanned.length === 0) ||
+              (activeTab === 'forecast' && sortedForecasts.length === 0)) && (
               <tr>
                 <td colSpan="7" className="py-14 px-4 text-center text-slate-400">
                   <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-400">
@@ -855,14 +908,18 @@ export const ReconciliationTable = ({
                   </div>
                   <p className="font-bold text-slate-700 text-sm">Belum Ada Data Mutasi Transaksi</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
-                    Tabel rekonsiliasi hanya akan terisi secara otomatis jika data mutasi kas telah diinput (melalui formulir transaksi aktual atau import mutasi).
+                    {activeTab === 'forecast' 
+                      ? 'Tidak ada data rencana forecast atau mutasi terkait yang sesuai dengan filter saat ini.' 
+                      : activeTab === 'non_forecast'
+                      ? 'Tidak ada data transaksi non forecast yang sesuai dengan filter saat ini.'
+                      : 'Tabel rekonsiliasi hanya akan terisi secara otomatis jika data mutasi kas telah diinput (melalui formulir transaksi aktual atau import mutasi).'}
                   </p>
                 </td>
               </tr>
             )}
 
             {/* Render Rencana Forecast yang Memiliki Mutasi */}
-            {activeTab !== 'anomali' && sortedForecasts.map((plan) => {
+            {activeTab !== 'anomali' && activeTab !== 'non_forecast' && sortedForecasts.map((plan) => {
               const rawSub = (planTransactionsMap[plan.id] || []).filter(t => {
                 if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
                 if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
@@ -1041,12 +1098,12 @@ export const ReconciliationTable = ({
               );
             })}
 
-            {/* Transaksi Diluar Forecast (Anomali) */}
-            {filteredUnplanned.length > 0 && (
+            {/* Transaksi Diluar Forecast (Non Forecast) */}
+            {activeTab !== 'forecast' && filteredUnplanned.length > 0 && (
               <>
                 <tr className="bg-rose-100/80 border-t-2 border-rose-300">
                   <td colSpan="7" className="py-2.5 px-4 font-bold text-rose-950 text-xs">
-                    <AlertTriangle className="w-4 h-4 inline mr-2 text-rose-600" /> TRANSAKSI TAMBAHAN (DILUAR FORECAST)
+                    <AlertTriangle className="w-4 h-4 inline mr-2 text-rose-600" /> TRANSAKSI NON FORECAST
                   </td>
                 </tr>
                 {sortedUnplanned.map((tx) => {
@@ -1118,14 +1175,14 @@ export const ReconciliationTable = ({
                             <button
                               onClick={(e) => handleEditTransaction(e, tx)}
                               className="p-1.5 text-rose-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
-                              title="Edit Anomali"
+                              title="Edit Transaksi Non Forecast"
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={(e) => handleTriggerDeleteTransaction(e, tx, true)}
                               className="p-1.5 text-rose-400 hover:text-rose-700 rounded-lg hover:bg-rose-200 transition-colors cursor-pointer"
-                              title="Hapus Anomali"
+                              title="Hapus Transaksi Non Forecast"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>

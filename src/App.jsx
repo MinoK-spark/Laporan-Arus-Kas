@@ -6,6 +6,7 @@ import { ForecastManager } from './components/ForecastManager';
 import { TransactionForm } from './components/TransactionForm';
 import { ReconciliationTable } from './components/ReconciliationTable';
 import { AnalyticsCharts } from './components/AnalyticsCharts';
+import { CashReport } from './components/CashReport';
 import { LoginPage } from './components/LoginPage';
 import { UserManagementModal } from './components/UserManagementModal';
 import { PrintSummaryModal } from './components/PrintSummaryModal';
@@ -816,6 +817,17 @@ export function App() {
               forecasts={forecasts}
               companyName={companyName}
               currentUser={currentUser}
+            />
+          </section>
+        )}
+
+        {activeTab === 'report' && (
+          <section>
+            <CashReport
+              banks={banks}
+              forecasts={forecasts}
+              transactions={transactions}
+              companyName={companyName}
             />
           </section>
         )}
