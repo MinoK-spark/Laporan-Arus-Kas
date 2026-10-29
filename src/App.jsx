@@ -684,7 +684,11 @@ export function App() {
         syncStatus={syncStatus}
       />
 
-      <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <main className={`flex-1 w-full mx-auto py-6 space-y-6 transition-all duration-200 ${
+        activeTab === 'report' 
+          ? 'max-w-[1920px] px-3 sm:px-6 lg:px-8' 
+          : 'max-w-[1440px] px-4 sm:px-6 lg:px-8'
+      }`}>
         
         {/* Banner Pembatasan Akses untuk Tamu / Viewer */}
         {isViewer && (
@@ -828,6 +832,7 @@ export function App() {
               forecasts={forecasts}
               transactions={transactions}
               companyName={companyName}
+              currentUser={currentUser}
             />
           </section>
         )}
