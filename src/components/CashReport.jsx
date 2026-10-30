@@ -272,8 +272,9 @@ export const CashReport = ({
       const totalPemasukan = pemasukanForecast + pemasukanNonForecast + pemasukanTransfer;
       const totalPengeluaran = pengeluaranForecast + pengeluaranNonForecast + pengeluaranTransfer;
 
-      // Keterangan: gabung semua deskripsi transaksi hari itu yang lolos filter
+      // Keterangan: hanya deskripsi dari transaksi non forecast saja yang ditampilkan
       const keterangan = filteredTodayTx
+        .filter(t => !isForecastTx(t))
         .map(t => t.deskripsi || '')
         .filter(Boolean)
         .join('; ');
@@ -894,6 +895,9 @@ export const CashReport = ({
                   </th>
                   <th className="py-2.5 px-3 min-w-[240px]" rowSpan={2}>
                     Keterangan
+                    <div className="text-[9px] font-normal text-corporate-300 normal-case tracking-normal">
+                      (Non Forecast)
+                    </div>
                   </th>
                 </tr>
 
