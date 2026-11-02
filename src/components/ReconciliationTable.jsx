@@ -235,7 +235,7 @@ export const ReconciliationTable = ({
     });
   }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab]);
 
-  // Otomatis expand forecast yang memiliki transaksi/rencana yang cocok dengan pencarian deskripsi
+  // Otomatis expand forecast yang memiliki transaksi/rencana yang cocok dengan pencarian deskripsi atau saat tab duplikat aktif
   useEffect(() => {
     if (cleanSearch) {
       const autoExpand = {};
@@ -248,8 +248,17 @@ export const ReconciliationTable = ({
         }
       });
       setExpandedPlans(prev => ({ ...prev, ...autoExpand }));
+    } else if (activeTab === 'duplikat') {
+      const autoExpand = {};
+      forecasts.forEach(f => {
+        const planTxList = planTransactionsMap[f.id] || [];
+        if (planTxList.some(t => t.isDuplicate)) {
+          autoExpand[f.id] = true;
+        }
+      });
+      setExpandedPlans(prev => ({ ...prev, ...autoExpand }));
     }
-  }, [cleanSearch, forecasts, planTransactionsMap]);
+  }, [cleanSearch, activeTab, forecasts, planTransactionsMap]);
 
   // Sort: Berdasarkan Tanggal (sortDateOrder) dan Tipe Mutasi
   const sortedForecasts = useMemo(() => {
@@ -924,6 +933,7 @@ export const ReconciliationTable = ({
                 if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
                 if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
                 if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+                if (activeTab === 'duplikat' && !t.isDuplicate) return false;
                 if (cleanSearch) {
                   const matchesPlan = String(plan.deskripsi || '').toLowerCase().includes(cleanSearch);
                   const matchesTx = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
@@ -931,6 +941,7 @@ export const ReconciliationTable = ({
                 }
                 return true;
               });
+              if (activeTab === 'duplikat' && rawSub.length === 0) return null;
               const subTransactions = [...rawSub].sort((a, b) => {
                 const dateA = a.tanggal || '';
                 const dateB = b.tanggal || '';

@@ -70,6 +70,9 @@ export const CashReport = ({
   // Mode pengelompokan Bank: 'pisah' (1 baris per Tanggal x Bank) | 'gabung' (1 baris per Tanggal, gabung seluruh bank)
   const [bankGroupingMode, setBankGroupingMode] = useState('pisah');
 
+  // Filter Mutasi Antar Bank (Transfer): false (Hanya Operasional) | true (Termasuk Transfer Antar Bank)
+  const [includeTransfer, setIncludeTransfer] = useState(false);
+
   // Toggle panel filter terbuka/tertutup
   const [filterOpen, setFilterOpen] = useState(true);
 
@@ -103,8 +106,13 @@ export const CashReport = ({
       return true;
     });
 
-    // 2. Filter transaksi sesuai pilihan Jenis Mutasi & Status Transaksi
+    // 2. Filter transaksi sesuai pilihan Jenis Mutasi, Status Transaksi & Transfer
     const matchedTx = filteredPeriodTx.filter(t => {
+      // Filter Transfer Antar Bank
+      if (!includeTransfer && isTransferTransaction(t)) {
+        return false;
+      }
+
       // Filter Jenis Mutasi
       if (jenisFilter === 'pemasukan') {
         if (!(isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in'))) {
@@ -241,7 +249,7 @@ export const CashReport = ({
       };
     }).filter(Boolean);
 
-  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, jenisFilter, forecastFilter, bankGroupingMode]);
+  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, jenisFilter, forecastFilter, bankGroupingMode, includeTransfer]);
 
   // ─── Grand Total ──────────────────────────────────────────────────────────
   const grandTotal = useMemo(() => ({
@@ -326,8 +334,9 @@ export const CashReport = ({
 
     const periodLabel = selectedMonth ? formatMonthIndo(selectedMonth) : 'Semua_Periode';
     const tagMode = bankGroupingMode === 'gabung' ? '_GabungBank' : '_PisahBank';
+    const tagTransfer = includeTransfer ? '_DgTransfer' : '_TanpaTransfer';
     const tagForecast = forecastFilter === 'forecast' ? '_Forecast' : forecastFilter === 'non_forecast' ? '_Non_Forecast' : '';
-    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagForecast}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
+    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTransfer}${tagForecast}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
   };
 
   // ─── Print / PDF ──────────────────────────────────────────────────────────
@@ -402,6 +411,13 @@ export const CashReport = ({
                     {bankGroupingMode === 'gabung' ? '📂 Bank Digabung' : '🏦 Bank Terpisah'}
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    includeTransfer
+                      ? 'bg-cyan-100 text-cyan-900 border-cyan-200'
+                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}>
+                    {includeTransfer ? '⇄ Termasuk Transfer' : 'Murni Operasional'}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                     forecastFilter === 'forecast'
                       ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
                       : forecastFilter === 'non_forecast'
@@ -445,6 +461,34 @@ export const CashReport = ({
                 >
                   <Combine className="w-3 h-3" />
                   <span>Gabung Bank</span>
+                </button>
+              </div>
+
+              {/* Quick Toggle Mutasi Transfer Antar Bank di Top Bar */}
+              <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setIncludeTransfer(false)}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    !includeTransfer
+                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Hanya transaksi operasional murni (tanpa pemindahan dana antar rekening)"
+                >
+                  Murni Operasional
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIncludeTransfer(true)}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    includeTransfer
+                      ? 'bg-cyan-700 text-white shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Sertakan mutasi transfer masuk & keluar antar rekening"
+                >
+                  + Transfer
                 </button>
               </div>
 
@@ -539,7 +583,7 @@ export const CashReport = ({
         {/* ── Panel Filter Lengkap (Screen Only) ── */}
         {filterOpen && (
           <div id="cash-report-filter-panel" className="p-4 sm:p-5 border-b border-slate-200/80 bg-slate-50/40 no-print">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
 
               {/* Filter 1: Periode Bulan */}
               <div>
@@ -586,6 +630,40 @@ export const CashReport = ({
                     }`}
                   >
                     Gabung Bank
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter 3: Transfer Antar Bank */}
+              <div>
+                <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  <Layers className="w-3.5 h-3.5 text-cyan-600" />
+                  Transfer Antar Bank
+                </label>
+                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setIncludeTransfer(false)}
+                    className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
+                      !includeTransfer
+                        ? 'bg-white text-slate-900 shadow-sm font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Kecualikan transfer antar bank (hanya transaksi operasional riil)"
+                  >
+                    Kecualikan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIncludeTransfer(true)}
+                    className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
+                      includeTransfer
+                        ? 'bg-cyan-700 text-white shadow-sm font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Sertakan mutasi transfer antar rekening"
+                  >
+                    Sertakan
                   </button>
                 </div>
               </div>
@@ -781,11 +859,13 @@ export const CashReport = ({
                   LAPORAN MUTASI ARUS KAS
                   {bankGroupingMode === 'gabung' ? ' (BANK DIGABUNG)' : ' (PER REKENING)'}
                   {forecastFilter === 'forecast' ? ' - HANYA FORECAST' : forecastFilter === 'non_forecast' ? ' - HANYA NON FORECAST' : ''}
+                  {!includeTransfer && ' [MURNI OPERASIONAL]'}
                 </h2>
                 <p className="text-[10px] text-slate-600 font-medium mt-0.5">
                   Periode: <strong className="text-slate-900">{formatMonthIndo(selectedMonth)}</strong>
                   {jenisFilter !== 'all' && ` • Filter: ${jenisFilter === 'pemasukan' ? 'Hanya Pemasukan' : 'Hanya Pengeluaran'}`}
                   {` • Format: ${bankGroupingMode === 'gabung' ? 'Gabung Bank per Tanggal' : 'Pisah per Rekening'}`}
+                  {` • Transfer: ${includeTransfer ? 'Termasuk Transfer' : 'Tanpa Transfer'}`}
                 </p>
               </div>
               <div className="text-right text-[9px] text-slate-500 space-y-0.5">
