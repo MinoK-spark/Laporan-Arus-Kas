@@ -71,6 +71,9 @@ export const CashReport = ({
   // Mode pengelompokan Bank: 'pisah' (1 baris per Tanggal x Bank) | 'gabung' (1 baris per Tanggal, gabung seluruh bank)
   const [bankGroupingMode, setBankGroupingMode] = useState('pisah');
 
+  // Urutan Tanggal: 'asc' (Paling Lama ke Baru: 1 -> 31) | 'desc' (Paling Baru ke Lama: 31 -> 1)
+  const [sortDateOrder, setSortDateOrder] = useState('asc');
+
   // Toggle panel filter terbuka/tertutup
   const [filterOpen, setFilterOpen] = useState(true);
 
@@ -182,11 +185,21 @@ export const CashReport = ({
       const totalTransaksi = txList.reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
       // Keterangan: HANYA deskripsi dari transaksi non-forecast saja (transfer & forecast TIDAK dimasukkan)
-      const keterangan = txList
+      // Diurutkan secara kronologis (paling lama ke baru / asc, lalu urutan waktu pembuatan)
+      const nonForecastTxs = txList
         .filter(t => !isForecastTx(t) && !isTransferTransaction(t))
-        .map(t => t.deskripsi || '')
-        .filter(Boolean)
-        .join('; ');
+        .slice()
+        .sort((a, b) => {
+          const dateCmp = (a.tanggal || '').localeCompare(b.tanggal || '');
+          if (dateCmp !== 0) return sortDateOrder === 'asc' ? dateCmp : -dateCmp;
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        });
+
+      const keteranganList = nonForecastTxs
+        .map(t => t.deskripsi?.trim())
+        .filter(Boolean);
+
+      const keterangan = keteranganList.join(keteranganList.length > 1 ? ' • ' : '');
 
       return {
         pemasukanForecast,
@@ -199,6 +212,7 @@ export const CashReport = ({
         totalPengeluaran,
         totalTransaksi,
         keterangan,
+        keteranganList,
         txCount: txList.length,
       };
     };
@@ -206,7 +220,9 @@ export const CashReport = ({
     // ─── Cabang 1: Mode Gabung Bank (1 baris per Tanggal) ───
     if (bankGroupingMode === 'gabung') {
       const datesSet = new Set(matchedTx.map(t => t.tanggal));
-      const sortedDates = Array.from(datesSet).sort();
+      const sortedDates = Array.from(datesSet).sort((a, b) =>
+        sortDateOrder === 'asc' ? a.localeCompare(b) : b.localeCompare(a)
+      );
 
       return sortedDates.map(tanggal => {
         const todayTxs = matchedTx.filter(t => t.tanggal === tanggal);
@@ -238,7 +254,13 @@ export const CashReport = ({
     // ─── Cabang 2: Mode Pisah Bank (1 baris per Tanggal x Bank) ───
     const keys = new Set();
     matchedTx.forEach(t => keys.add(`${t.tanggal}__${t.bankId}`));
-    const sortedKeys = Array.from(keys).sort(); // "YYYY-MM-DD__bankId"
+    const sortedKeys = Array.from(keys).sort((a, b) => {
+      const [tglA, bankA] = a.split('__');
+      const [tglB, bankB] = b.split('__');
+      const dateCmp = sortDateOrder === 'asc' ? tglA.localeCompare(tglB) : tglB.localeCompare(tglA);
+      if (dateCmp !== 0) return dateCmp;
+      return bankA.localeCompare(bankB);
+    });
 
     return sortedKeys.map(key => {
       const [tanggal, bankId] = key.split('__');
@@ -258,7 +280,7 @@ export const CashReport = ({
       };
     }).filter(Boolean);
 
-  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, selectedTypes, forecastFilter, bankGroupingMode]);
+  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, selectedTypes, forecastFilter, bankGroupingMode, sortDateOrder]);
 
   // ─── Grand Total ──────────────────────────────────────────────────────────
   const grandTotal = useMemo(() => ({
@@ -359,7 +381,8 @@ export const CashReport = ({
     const tagMode = bankGroupingMode === 'gabung' ? '_GabungBank' : '_PisahBank';
     const tagTypes = `_${selectedTypes.join('_')}`;
     const tagForecast = forecastFilter === 'forecast' ? '_Forecast' : forecastFilter === 'non_forecast' ? '_Non_Forecast' : '';
-    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTypes}${tagForecast}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
+    const tagSort = sortDateOrder === 'asc' ? '_LamaKeBaru' : '_BaruKeLama';
+    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTypes}${tagForecast}${tagSort}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
   };
 
   // ─── Print / PDF ──────────────────────────────────────────────────────────
@@ -449,6 +472,9 @@ export const CashReport = ({
                   }`}>
                     {forecastFilter === 'forecast' ? '🎯 Forecast Saja' : forecastFilter === 'non_forecast' ? '⚡ Non Forecast Saja' : 'Semua Transaksi'}
                   </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-700 border-slate-200">
+                    {sortDateOrder === 'asc' ? '📅 1 → 31 (Lama ke Baru)' : '📅 31 → 1 (Baru ke Lama)'}
+                  </span>
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
                   Rekapitulasi tanggal transaksi, rekening, total mutasi, rincian forecast/non forecast & deskripsi
@@ -457,6 +483,34 @@ export const CashReport = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* Opsi Urutan Tanggal di Top Bar */}
+              <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setSortDateOrder('asc')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    sortDateOrder === 'asc'
+                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Urutkan dari tanggal paling lama ke paling baru (1 -> 31)"
+                >
+                  <span>📅 Lama ke Baru</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSortDateOrder('desc')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    sortDateOrder === 'desc'
+                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Urutkan dari tanggal paling baru ke paling lama (31 -> 1)"
+                >
+                  <span>Baru ke Lama</span>
+                </button>
+              </div>
+
               {/* Opsi Gabung / Pisah Bank di Top Bar */}
               <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold">
                 <button
@@ -623,7 +677,7 @@ export const CashReport = ({
         {/* ── Panel Filter Lengkap (Screen Only) ── */}
         {filterOpen && (
           <div id="cash-report-filter-panel" className="p-4 sm:p-5 border-b border-slate-200/80 bg-slate-50/40 no-print">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
 
               {/* Filter 1: Periode Bulan */}
               <div>
@@ -670,6 +724,40 @@ export const CashReport = ({
                     }`}
                   >
                     Gabung Bank
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter 3: Urutan Tanggal */}
+              <div>
+                <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  <Calendar className="w-3.5 h-3.5 text-corporate-600" />
+                  Urutan Tanggal
+                </label>
+                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setSortDateOrder('asc')}
+                    className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
+                      sortDateOrder === 'asc'
+                        ? 'bg-white text-slate-900 shadow-sm font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Urutkan tanggal 1 ke 31 (paling lama ke baru)"
+                  >
+                    1 → 31 (Lama)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSortDateOrder('desc')}
+                    className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
+                      sortDateOrder === 'desc'
+                        ? 'bg-white text-slate-900 shadow-sm font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Urutkan tanggal 31 ke 1 (paling baru ke lama)"
+                  >
+                    31 → 1 (Baru)
                   </button>
                 </div>
               </div>
@@ -817,7 +905,8 @@ export const CashReport = ({
               <span>
                 Menampilkan <strong className="text-slate-800">{reportRows.length} baris</strong> ({grandTotal.txCount} mutasi transaksi) dari periode{' '}
                 <strong className="text-slate-800">{formatMonthIndo(selectedMonth)}</strong> • Tampilan:{' '}
-                <strong className="text-purple-700">{bankGroupingMode === 'gabung' ? 'Bank Digabung per Tanggal' : 'Bank Terpisah per Tanggal'}</strong> • Filter:{' '}
+                <strong className="text-purple-700">{bankGroupingMode === 'gabung' ? 'Bank Digabung per Tanggal' : 'Bank Terpisah per Tanggal'}</strong> • Urutan:{' '}
+                <strong className="text-slate-800">{sortDateOrder === 'asc' ? '📅 1 → 31 (Lama ke Baru)' : '📅 31 → 1 (Baru ke Lama)'}</strong> • Filter:{' '}
                 <strong className="text-slate-800">
                   {forecastFilter === 'forecast' ? 'Hanya Forecast' : forecastFilter === 'non_forecast' ? 'Hanya Non Forecast' : 'Semua Status'}
                 </strong> • Tipe Mutasi:{' '}
@@ -923,6 +1012,7 @@ export const CashReport = ({
                 <p className="text-[10px] text-slate-600 font-medium mt-0.5">
                   Periode: <strong className="text-slate-900">{formatMonthIndo(selectedMonth)}</strong>
                   {` • Tipe Mutasi: ${selectedTypes.map(t => t === 'pemasukan' ? 'Pemasukan' : t === 'pengeluaran' ? 'Pengeluaran' : 'Transfer').join(' + ')}`}
+                  {` • Urutan: ${sortDateOrder === 'asc' ? 'Paling Lama ke Baru (1→31)' : 'Paling Baru ke Lama (31→1)'}`}
                   {` • Format: ${bankGroupingMode === 'gabung' ? 'Gabung Bank per Tanggal' : 'Pisah per Rekening'}`}
                 </p>
               </div>
@@ -1135,7 +1225,16 @@ export const CashReport = ({
 
                       {/* Keterangan: HANYA Deskripsi Transaksi Non Forecast */}
                       <td className="py-2.5 px-3 text-slate-700 text-[11px] min-w-[260px] max-w-md">
-                        {row.keterangan ? (
+                        {row.keteranganList && row.keteranganList.length > 1 ? (
+                          <ul className="space-y-1 text-slate-800">
+                            {row.keteranganList.map((ket, kIdx) => (
+                              <li key={kIdx} className="flex items-start gap-1.5 leading-relaxed">
+                                <span className="text-amber-500 font-bold shrink-0 leading-tight">•</span>
+                                <span className="break-words italic">{ket}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : row.keterangan ? (
                           <span className="italic leading-relaxed block break-words text-slate-800">
                             {row.keterangan}
                           </span>
