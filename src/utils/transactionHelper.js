@@ -8,8 +8,18 @@ export const isTransferTransaction = (t) => {
   if (t.isTransfer === true || t.tipe === 'transfer' || t.tipe === 'transfer_masuk' || t.tipe === 'transfer_keluar') {
     return true;
   }
+  if (t.transferDirection === 'in' || t.transferDirection === 'out') {
+    return true;
+  }
+  if (t.targetBankId || t.sourceBankId || t.transferToBankId) {
+    return true;
+  }
   if (typeof t.deskripsi === 'string') {
-    if (t.deskripsi.startsWith('Transfer Keluar ke [') || t.deskripsi.startsWith('Transfer Masuk dari [')) {
+    const dLower = t.deskripsi.toLowerCase();
+    if (dLower.startsWith('transfer keluar ke [') || dLower.startsWith('transfer masuk dari [')) {
+      return true;
+    }
+    if (dLower.includes('transfer antar bank') || dLower.includes('transfer antar rekening') || dLower.includes('transfer ke [') || dLower.includes('transfer dari [')) {
       return true;
     }
   }

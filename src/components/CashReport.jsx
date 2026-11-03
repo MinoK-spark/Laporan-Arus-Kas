@@ -61,17 +61,15 @@ export const CashReport = ({
     });
   }
 
-  // Filter jenis mutasi: 'all' | 'pemasukan' | 'pengeluaran'
-  const [jenisFilter, setJenisFilter] = useState('all');
+  // Filter tipe transaksi (Checkbox Multi-select): 'pemasukan' | 'pengeluaran' | 'transfer'
+  // Default: ['pemasukan', 'pengeluaran'] (Murni Operasional)
+  const [selectedTypes, setSelectedTypes] = useState(['pemasukan', 'pengeluaran']);
 
   // Filter status transaksi: 'all' | 'forecast' | 'non_forecast'
   const [forecastFilter, setForecastFilter] = useState('all');
 
   // Mode pengelompokan Bank: 'pisah' (1 baris per Tanggal x Bank) | 'gabung' (1 baris per Tanggal, gabung seluruh bank)
   const [bankGroupingMode, setBankGroupingMode] = useState('pisah');
-
-  // Filter Mutasi Antar Bank (Transfer): false (Hanya Operasional) | true (Termasuk Transfer Antar Bank)
-  const [includeTransfer, setIncludeTransfer] = useState(false);
 
   // Toggle panel filter terbuka/tertutup
   const [filterOpen, setFilterOpen] = useState(true);
@@ -86,7 +84,7 @@ export const CashReport = ({
     return Boolean(t.planId && t.planId !== 'unplanned' && forecasts.some(f => f.id === t.planId));
   };
 
-  // ─── Handler Filter Rekening ──────────────────────────────────────────────
+  // ─── Handler Filter Rekening & Tipe Transaksi ─────────────────────────────
   const handleToggleBank = (bankId) => {
     setSelectedBankIds(prev =>
       prev.includes(bankId) ? prev.filter(id => id !== bankId) : [...prev, bankId]
@@ -95,6 +93,34 @@ export const CashReport = ({
 
   const handleSelectAllBanks = () => setSelectedBankIds(banks.map(b => b.id));
   const handleDeselectAllBanks = () => setSelectedBankIds([]);
+
+  // Handler toggle checkbox tipe transaksi (multi-select)
+  const handleToggleType = (typeKey) => {
+    setSelectedTypes(prev => {
+      if (prev.includes(typeKey)) {
+        // Menjaga agar minimal 1 tipe tetap terpilih
+        if (prev.length === 1) return prev;
+        return prev.filter(t => t !== typeKey);
+      } else {
+        return [...prev, typeKey];
+      }
+    });
+  };
+
+  // Helper pencocokan filter tipe transaksi
+  const matchesTypeFilter = (t) => {
+    const isTrf = isTransferTransaction(t);
+    if (isTrf) {
+      return selectedTypes.includes('transfer');
+    }
+    if (t.tipe === 'pemasukan') {
+      return selectedTypes.includes('pemasukan');
+    }
+    if (t.tipe === 'pengeluaran') {
+      return selectedTypes.includes('pengeluaran');
+    }
+    return false;
+  };
 
   // ─── Agregasi Data Laporan Sesuai Mode Gabung / Pisah Bank ─────────────────
   const reportRows = useMemo(() => {
@@ -106,26 +132,14 @@ export const CashReport = ({
       return true;
     });
 
-    // 2. Filter transaksi sesuai pilihan Jenis Mutasi, Status Transaksi & Transfer
+    // 2. Filter transaksi sesuai pilihan Checkbox Tipe Transaksi & Status Transaksi
     const matchedTx = filteredPeriodTx.filter(t => {
-      // Filter Transfer Antar Bank
-      if (!includeTransfer && isTransferTransaction(t)) {
+      // Filter Tipe Transaksi (Pemasukan, Pengeluaran, Transfer)
+      if (!matchesTypeFilter(t)) {
         return false;
       }
 
-      // Filter Jenis Mutasi
-      if (jenisFilter === 'pemasukan') {
-        if (!(isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in'))) {
-          return false;
-        }
-      }
-      if (jenisFilter === 'pengeluaran') {
-        if (!(isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out'))) {
-          return false;
-        }
-      }
-
-      // Filter Status Transaksi
+      // Filter Status Transaksi (Forecast / Non Forecast)
       const isFc = isForecastTx(t);
       if (forecastFilter === 'forecast' && !isFc) return false;
       if (forecastFilter === 'non_forecast' && isFc) return false;
@@ -137,44 +151,39 @@ export const CashReport = ({
 
     // Helper kalkulasi nominal & keterangan non-forecast untuk kumpulan transaksi
     const summarizeTxs = (txList) => {
-      // Pemasukan
+      // Pemasukan Operasional
       const pemasukanForecast = txList
         .filter(t => isOperationalIncome(t) && isForecastTx(t))
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       const pemasukanNonForecast = txList
         .filter(t => isOperationalIncome(t) && !isForecastTx(t))
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
-      const pemasukanTransfer = txList
-        .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'in')
-        .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
-      // Pengeluaran
+      // Pengeluaran Operasional
       const pengeluaranForecast = txList
         .filter(t => isOperationalExpense(t) && isForecastTx(t))
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       const pengeluaranNonForecast = txList
         .filter(t => isOperationalExpense(t) && !isForecastTx(t))
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
-      const pengeluaranTransfer = txList
+
+      // Mutasi Transfer Antar Bank (Hanya jika transfer dicentang)
+      const transferMasuk = txList
+        .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'in')
+        .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+      const transferKeluar = txList
         .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out')
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
-      const totalPemasukan = pemasukanForecast + pemasukanNonForecast + pemasukanTransfer;
-      const totalPengeluaran = pengeluaranForecast + pengeluaranNonForecast + pengeluaranTransfer;
+      const totalPemasukan = pemasukanForecast + pemasukanNonForecast + transferMasuk;
+      const totalPengeluaran = pengeluaranForecast + pengeluaranNonForecast + transferKeluar;
 
-      // Total Transaksi: jika filter jenis aktif tampilkan total nominal mutasi jenis tersebut, jika 'all' tampilkan akumulasi masuk + keluar
-      let totalTransaksi = 0;
-      if (jenisFilter === 'pemasukan') {
-        totalTransaksi = totalPemasukan;
-      } else if (jenisFilter === 'pengeluaran') {
-        totalTransaksi = totalPengeluaran;
-      } else {
-        totalTransaksi = totalPemasukan + totalPengeluaran;
-      }
+      // Total Transaksi: Akumulasi seluruh nominal transaksi yang lolos filter di baris ini
+      const totalTransaksi = txList.reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
-      // Keterangan: HANYA deskripsi dari transaksi non-forecast saja
+      // Keterangan: HANYA deskripsi dari transaksi non-forecast saja (transfer & forecast TIDAK dimasukkan)
       const keterangan = txList
-        .filter(t => !isForecastTx(t))
+        .filter(t => !isForecastTx(t) && !isTransferTransaction(t))
         .map(t => t.deskripsi || '')
         .filter(Boolean)
         .join('; ');
@@ -182,11 +191,11 @@ export const CashReport = ({
       return {
         pemasukanForecast,
         pemasukanNonForecast,
-        pemasukanTransfer,
-        totalPemasukan,
         pengeluaranForecast,
         pengeluaranNonForecast,
-        pengeluaranTransfer,
+        transferMasuk,
+        transferKeluar,
+        totalPemasukan,
         totalPengeluaran,
         totalTransaksi,
         keterangan,
@@ -249,7 +258,7 @@ export const CashReport = ({
       };
     }).filter(Boolean);
 
-  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, jenisFilter, forecastFilter, bankGroupingMode, includeTransfer]);
+  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, selectedTypes, forecastFilter, bankGroupingMode]);
 
   // ─── Grand Total ──────────────────────────────────────────────────────────
   const grandTotal = useMemo(() => ({
@@ -259,18 +268,23 @@ export const CashReport = ({
     totalPengeluaran: reportRows.reduce((s, r) => s + r.totalPengeluaran, 0),
     pengeluaranForecast: reportRows.reduce((s, r) => s + r.pengeluaranForecast, 0),
     pengeluaranNonForecast: reportRows.reduce((s, r) => s + r.pengeluaranNonForecast, 0),
+    transferMasuk: reportRows.reduce((s, r) => s + (r.transferMasuk || 0), 0),
+    transferKeluar: reportRows.reduce((s, r) => s + (r.transferKeluar || 0), 0),
     totalTransaksi: reportRows.reduce((s, r) => s + r.totalTransaksi, 0),
     txCount: reportRows.reduce((s, r) => s + r.txCount, 0),
   }), [reportRows]);
 
-  const showPemasukan = jenisFilter === 'all' || jenisFilter === 'pemasukan';
-  const showPengeluaran = jenisFilter === 'all' || jenisFilter === 'pengeluaran';
+  const showPemasukan = selectedTypes.includes('pemasukan');
+  const showPengeluaran = selectedTypes.includes('pengeluaran');
+  const showTransfer = selectedTypes.includes('transfer');
 
-  // Sub-kolom dinamis sesuai forecastFilter
+  // Sub-kolom dinamis sesuai forecastFilter & selectedTypes
   const showPemasukanFC = showPemasukan && (forecastFilter === 'all' || forecastFilter === 'forecast');
   const showPemasukanNonFC = showPemasukan && (forecastFilter === 'all' || forecastFilter === 'non_forecast');
   const showPengeluaranFC = showPengeluaran && (forecastFilter === 'all' || forecastFilter === 'forecast');
   const showPengeluaranNonFC = showPengeluaran && (forecastFilter === 'all' || forecastFilter === 'non_forecast');
+  const showTransferMasuk = showTransfer;
+  const showTransferKeluar = showTransfer;
 
   // Angka aktif untuk ringkasan KPI dan Net
   const activePemasukan = forecastFilter === 'forecast'
@@ -285,7 +299,7 @@ export const CashReport = ({
     ? grandTotal.pengeluaranNonForecast
     : grandTotal.totalPengeluaran;
 
-  const activeNet = activePemasukan - activePengeluaran;
+  const activeNet = (showPemasukan ? activePemasukan : 0) - (showPengeluaran ? activePengeluaran : 0);
 
   // ─── Export Excel ──────────────────────────────────────────────────────────
   const handleExportExcel = () => {
@@ -313,6 +327,13 @@ export const CashReport = ({
         row['Pengeluaran Non Forecast (Rp)'] = r.pengeluaranNonForecast;
       }
 
+      if (showTransferMasuk) {
+        row['Transfer Masuk (Rp)'] = r.transferMasuk;
+      }
+      if (showTransferKeluar) {
+        row['Transfer Keluar (Rp)'] = r.transferKeluar;
+      }
+
       row['Keterangan (Non Forecast)'] = r.keterangan;
       return row;
     });
@@ -329,14 +350,16 @@ export const CashReport = ({
     if (showPemasukanNonFC) totalRow['Pemasukan Non Forecast (Rp)'] = grandTotal.pemasukanNonForecast;
     if (showPengeluaranFC) totalRow['Pengeluaran Forecast (Rp)'] = grandTotal.pengeluaranForecast;
     if (showPengeluaranNonFC) totalRow['Pengeluaran Non Forecast (Rp)'] = grandTotal.pengeluaranNonForecast;
+    if (showTransferMasuk) totalRow['Transfer Masuk (Rp)'] = grandTotal.transferMasuk;
+    if (showTransferKeluar) totalRow['Transfer Keluar (Rp)'] = grandTotal.transferKeluar;
     totalRow['Keterangan (Non Forecast)'] = '';
     exportData.push(totalRow);
 
     const periodLabel = selectedMonth ? formatMonthIndo(selectedMonth) : 'Semua_Periode';
     const tagMode = bankGroupingMode === 'gabung' ? '_GabungBank' : '_PisahBank';
-    const tagTransfer = includeTransfer ? '_DgTransfer' : '_TanpaTransfer';
+    const tagTypes = `_${selectedTypes.join('_')}`;
     const tagForecast = forecastFilter === 'forecast' ? '_Forecast' : forecastFilter === 'non_forecast' ? '_Non_Forecast' : '';
-    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTransfer}${tagForecast}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
+    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTypes}${tagForecast}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
   };
 
   // ─── Print / PDF ──────────────────────────────────────────────────────────
@@ -411,11 +434,11 @@ export const CashReport = ({
                     {bankGroupingMode === 'gabung' ? '📂 Bank Digabung' : '🏦 Bank Terpisah'}
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                    includeTransfer
+                    selectedTypes.includes('transfer')
                       ? 'bg-cyan-100 text-cyan-900 border-cyan-200'
                       : 'bg-slate-100 text-slate-700 border-slate-200'
                   }`}>
-                    {includeTransfer ? '⇄ Termasuk Transfer' : 'Murni Operasional'}
+                    {selectedTypes.includes('transfer') ? '⇄ Termasuk Transfer' : 'Murni Operasional'}
                   </span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                     forecastFilter === 'forecast'
@@ -464,32 +487,49 @@ export const CashReport = ({
                 </button>
               </div>
 
-              {/* Quick Toggle Mutasi Transfer Antar Bank di Top Bar */}
-              <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setIncludeTransfer(false)}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    !includeTransfer
-                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Hanya transaksi operasional murni (tanpa pemindahan dana antar rekening)"
-                >
-                  Murni Operasional
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIncludeTransfer(true)}
-                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    includeTransfer
-                      ? 'bg-cyan-700 text-white shadow-2xs font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Sertakan mutasi transfer masuk & keluar antar rekening"
-                >
-                  + Transfer
-                </button>
+              {/* Quick Checkbox Tipe Transaksi di Top Bar */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-200/70 rounded-xl text-xs font-semibold">
+                <label className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg transition-all cursor-pointer select-none ${
+                  selectedTypes.includes('pemasukan')
+                    ? 'bg-white text-emerald-800 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTypes.includes('pemasukan')}
+                    onChange={() => handleToggleType('pemasukan')}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span>↑ Masuk</span>
+                </label>
+
+                <label className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg transition-all cursor-pointer select-none ${
+                  selectedTypes.includes('pengeluaran')
+                    ? 'bg-white text-rose-800 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTypes.includes('pengeluaran')}
+                    onChange={() => handleToggleType('pengeluaran')}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                  />
+                  <span>↓ Keluar</span>
+                </label>
+
+                <label className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg transition-all cursor-pointer select-none ${
+                  selectedTypes.includes('transfer')
+                    ? 'bg-cyan-700 text-white shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTypes.includes('transfer')}
+                    onChange={() => handleToggleType('transfer')}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                  />
+                  <span>⇄ Transfer</span>
+                </label>
               </div>
 
               {/* Quick Toggle Forecast / Non Forecast */}
@@ -583,7 +623,7 @@ export const CashReport = ({
         {/* ── Panel Filter Lengkap (Screen Only) ── */}
         {filterOpen && (
           <div id="cash-report-filter-panel" className="p-4 sm:p-5 border-b border-slate-200/80 bg-slate-50/40 no-print">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
 
               {/* Filter 1: Periode Bulan */}
               <div>
@@ -634,40 +674,6 @@ export const CashReport = ({
                 </div>
               </div>
 
-              {/* Filter 3: Transfer Antar Bank */}
-              <div>
-                <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  <Layers className="w-3.5 h-3.5 text-cyan-600" />
-                  Transfer Antar Bank
-                </label>
-                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => setIncludeTransfer(false)}
-                    className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
-                      !includeTransfer
-                        ? 'bg-white text-slate-900 shadow-sm font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Kecualikan transfer antar bank (hanya transaksi operasional riil)"
-                  >
-                    Kecualikan
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIncludeTransfer(true)}
-                    className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
-                      includeTransfer
-                        ? 'bg-cyan-700 text-white shadow-sm font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                    title="Sertakan mutasi transfer antar rekening"
-                  >
-                    Sertakan
-                  </button>
-                </div>
-              </div>
-
               {/* Filter 3: Status Transaksi */}
               <div>
                 <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
@@ -700,35 +706,69 @@ export const CashReport = ({
                 </div>
               </div>
 
-              {/* Filter 4: Jenis Mutasi */}
+              {/* Filter 4: Tipe Transaksi (Multi-Select Checkboxes) */}
               <div>
-                <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  <Filter className="w-3.5 h-3.5 text-corporate-600" />
-                  Jenis Mutasi
-                </label>
-                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-semibold">
-                  {[
-                    { val: 'all', label: 'Semua' },
-                    { val: 'pemasukan', label: '↑ Masuk' },
-                    { val: 'pengeluaran', label: '↓ Keluar' },
-                  ].map(({ val, label }) => (
+                <div className="flex items-center justify-between mb-2">
+                  <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <Filter className="w-3.5 h-3.5 text-corporate-600" />
+                    Tipe Mutasi ({selectedTypes.length}/3)
+                  </label>
+                  <div className="flex items-center gap-1.5 text-[10px]">
                     <button
-                      key={val}
                       type="button"
-                      onClick={() => setJenisFilter(val)}
-                      className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
-                        jenisFilter === val
-                          ? val === 'pemasukan'
-                            ? 'bg-emerald-600 text-white shadow-sm font-bold'
-                            : val === 'pengeluaran'
-                            ? 'bg-rose-600 text-white shadow-sm font-bold'
-                            : 'bg-white text-slate-900 shadow-sm font-bold'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                      onClick={() => setSelectedTypes(['pemasukan', 'pengeluaran'])}
+                      className="text-corporate-600 hover:text-corporate-800 font-semibold cursor-pointer"
+                      title="Hanya Pemasukan & Pengeluaran Operasional"
                     >
-                      {label}
+                      Operasional
                     </button>
-                  ))}
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTypes(['pemasukan', 'pengeluaran', 'transfer'])}
+                      className="text-cyan-700 hover:text-cyan-900 font-semibold cursor-pointer"
+                      title="Semua tipe termasuk Transfer"
+                    >
+                      Semua
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1 bg-white border border-slate-200 rounded-xl p-1.5 shadow-xs">
+                  <label className={`flex items-center gap-2 px-2 py-0.5 rounded-lg cursor-pointer transition-colors text-xs font-semibold select-none ${
+                    selectedTypes.includes('pemasukan') ? 'bg-emerald-50 text-emerald-900' : 'text-slate-500 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTypes.includes('pemasukan')}
+                      onChange={() => handleToggleType('pemasukan')}
+                      className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <span>↑ Pemasukan</span>
+                  </label>
+
+                  <label className={`flex items-center gap-2 px-2 py-0.5 rounded-lg cursor-pointer transition-colors text-xs font-semibold select-none ${
+                    selectedTypes.includes('pengeluaran') ? 'bg-rose-50 text-rose-900' : 'text-slate-500 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTypes.includes('pengeluaran')}
+                      onChange={() => handleToggleType('pengeluaran')}
+                      className="w-3.5 h-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <span>↓ Pengeluaran</span>
+                  </label>
+
+                  <label className={`flex items-center gap-2 px-2 py-0.5 rounded-lg cursor-pointer transition-colors text-xs font-semibold select-none ${
+                    selectedTypes.includes('transfer') ? 'bg-cyan-50 text-cyan-900' : 'text-slate-500 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTypes.includes('transfer')}
+                      onChange={() => handleToggleType('transfer')}
+                      className="w-3.5 h-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 cursor-pointer"
+                    />
+                    <span>⇄ Transfer Antar Bank</span>
+                  </label>
                 </div>
               </div>
 
@@ -779,7 +819,10 @@ export const CashReport = ({
                 <strong className="text-slate-800">{formatMonthIndo(selectedMonth)}</strong> • Tampilan:{' '}
                 <strong className="text-purple-700">{bankGroupingMode === 'gabung' ? 'Bank Digabung per Tanggal' : 'Bank Terpisah per Tanggal'}</strong> • Filter:{' '}
                 <strong className="text-slate-800">
-                  {forecastFilter === 'forecast' ? 'Hanya Forecast' : forecastFilter === 'non_forecast' ? 'Hanya Non Forecast' : 'Semua Transaksi'}
+                  {forecastFilter === 'forecast' ? 'Hanya Forecast' : forecastFilter === 'non_forecast' ? 'Hanya Non Forecast' : 'Semua Status'}
+                </strong> • Tipe Mutasi:{' '}
+                <strong className="text-corporate-700">
+                  {selectedTypes.map(t => t === 'pemasukan' ? 'Pemasukan' : t === 'pengeluaran' ? 'Pengeluaran' : 'Transfer Antar Bank').join(' + ')}
                 </strong>
               </span>
             </div>
@@ -802,48 +845,64 @@ export const CashReport = ({
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
             <div className="flex items-center justify-between text-xs text-emerald-600 mb-1">
               <span className="font-semibold">
-                {forecastFilter === 'forecast' ? 'Pemasukan Forecast' : forecastFilter === 'non_forecast' ? 'Pemasukan Non FC' : 'Total Pemasukan'}
+                {showPemasukan
+                  ? (forecastFilter === 'forecast' ? 'Pemasukan Forecast' : forecastFilter === 'non_forecast' ? 'Pemasukan Non FC' : 'Total Pemasukan')
+                  : 'Transfer Masuk'}
               </span>
               <TrendingUp className="w-4 h-4" />
             </div>
             <div className="text-sm sm:text-base font-extrabold text-emerald-700 font-mono-num truncate">
-              {formatRupiah(activePemasukan)}
+              {formatRupiah(showPemasukan ? activePemasukan : grandTotal.transferMasuk)}
             </div>
             <div className="text-[10px] text-slate-400 mt-0.5">
-              {forecastFilter === 'all'
-                ? `FC: ${formatRupiah(grandTotal.pemasukanForecast)} | Non FC: ${formatRupiah(grandTotal.pemasukanNonForecast)}`
-                : 'Arus kas masuk terverifikasi'}
+              {showPemasukan
+                ? (forecastFilter === 'all'
+                    ? `FC: ${formatRupiah(grandTotal.pemasukanForecast)} | Non FC: ${formatRupiah(grandTotal.pemasukanNonForecast)}`
+                    : 'Arus kas masuk operasional')
+                : 'Pemindahan dana internal masuk'}
             </div>
           </div>
 
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
             <div className="flex items-center justify-between text-xs text-rose-600 mb-1">
               <span className="font-semibold">
-                {forecastFilter === 'forecast' ? 'Pengeluaran Forecast' : forecastFilter === 'non_forecast' ? 'Pengeluaran Non FC' : 'Total Pengeluaran'}
+                {showPengeluaran
+                  ? (forecastFilter === 'forecast' ? 'Pengeluaran Forecast' : forecastFilter === 'non_forecast' ? 'Pengeluaran Non FC' : 'Total Pengeluaran')
+                  : 'Transfer Keluar'}
               </span>
               <TrendingDown className="w-4 h-4" />
             </div>
             <div className="text-sm sm:text-base font-extrabold text-rose-700 font-mono-num truncate">
-              {formatRupiah(activePengeluaran)}
+              {formatRupiah(showPengeluaran ? activePengeluaran : grandTotal.transferKeluar)}
             </div>
             <div className="text-[10px] text-slate-400 mt-0.5">
-              {forecastFilter === 'all'
-                ? `FC: ${formatRupiah(grandTotal.pengeluaranForecast)} | Non FC: ${formatRupiah(grandTotal.pengeluaranNonForecast)}`
-                : 'Arus kas keluar terverifikasi'}
+              {showPengeluaran
+                ? (forecastFilter === 'all'
+                    ? `FC: ${formatRupiah(grandTotal.pengeluaranForecast)} | Non FC: ${formatRupiah(grandTotal.pengeluaranNonForecast)}`
+                    : 'Arus kas keluar operasional')
+                : 'Pemindahan dana internal keluar'}
             </div>
           </div>
 
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
             <div className="flex items-center justify-between text-xs text-indigo-600 mb-1">
-              <span className="font-semibold">Net Mutasi (Masuk − Keluar)</span>
+              <span className="font-semibold">
+                {showPemasukan && showPengeluaran ? 'Net Mutasi (Masuk − Keluar)' : 'Total Baris Data'}
+              </span>
               <Target className="w-4 h-4" />
             </div>
             <div className={`text-sm sm:text-base font-extrabold font-mono-num truncate ${
-              activeNet >= 0 ? 'text-emerald-700' : 'text-rose-700'
+              showPemasukan && showPengeluaran
+                ? (activeNet >= 0 ? 'text-emerald-700' : 'text-rose-700')
+                : 'text-slate-800'
             }`}>
-              {formatRupiah(activeNet)}
+              {showPemasukan && showPengeluaran ? formatRupiah(activeNet) : `${reportRows.length} Baris`}
             </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">{reportRows.length} baris pada tabel</div>
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              {showPemasukan && showPengeluaran
+                ? `${reportRows.length} baris pada tabel`
+                : `${grandTotal.txCount} total mutasi`}
+            </div>
           </div>
         </div>
 
@@ -859,13 +918,12 @@ export const CashReport = ({
                   LAPORAN MUTASI ARUS KAS
                   {bankGroupingMode === 'gabung' ? ' (BANK DIGABUNG)' : ' (PER REKENING)'}
                   {forecastFilter === 'forecast' ? ' - HANYA FORECAST' : forecastFilter === 'non_forecast' ? ' - HANYA NON FORECAST' : ''}
-                  {!includeTransfer && ' [MURNI OPERASIONAL]'}
+                  {!selectedTypes.includes('transfer') && ' [MURNI OPERASIONAL]'}
                 </h2>
                 <p className="text-[10px] text-slate-600 font-medium mt-0.5">
                   Periode: <strong className="text-slate-900">{formatMonthIndo(selectedMonth)}</strong>
-                  {jenisFilter !== 'all' && ` • Filter: ${jenisFilter === 'pemasukan' ? 'Hanya Pemasukan' : 'Hanya Pengeluaran'}`}
+                  {` • Tipe Mutasi: ${selectedTypes.map(t => t === 'pemasukan' ? 'Pemasukan' : t === 'pengeluaran' ? 'Pengeluaran' : 'Transfer').join(' + ')}`}
                   {` • Format: ${bankGroupingMode === 'gabung' ? 'Gabung Bank per Tanggal' : 'Pisah per Rekening'}`}
-                  {` • Transfer: ${includeTransfer ? 'Termasuk Transfer' : 'Tanpa Transfer'}`}
                 </p>
               </div>
               <div className="text-right text-[9px] text-slate-500 space-y-0.5">
@@ -936,6 +994,16 @@ export const CashReport = ({
                       ↓ Pengeluaran<br/>Non Forecast
                     </th>
                   )}
+                  {showTransferMasuk && (
+                    <th className="py-3 px-3 text-right border-r border-corporate-700 bg-cyan-950/80 min-w-[130px]">
+                      ⇄ Transfer<br/>Masuk
+                    </th>
+                  )}
+                  {showTransferKeluar && (
+                    <th className="py-3 px-3 text-right border-r border-corporate-700 bg-cyan-900/80 min-w-[130px]">
+                      ⇄ Transfer<br/>Keluar
+                    </th>
+                  )}
                   <th className="py-3 px-3 min-w-[260px]">
                     Keterangan
                     <div className="text-[9px] font-normal text-amber-300 normal-case tracking-normal">
@@ -950,7 +1018,7 @@ export const CashReport = ({
                 {reportRows.length === 0 && (
                   <tr>
                     <td
-                      colSpan={4 + (showPemasukanFC ? 1 : 0) + (showPemasukanNonFC ? 1 : 0) + (showPengeluaranFC ? 1 : 0) + (showPengeluaranNonFC ? 1 : 0) + 1}
+                      colSpan={4 + (showPemasukanFC ? 1 : 0) + (showPemasukanNonFC ? 1 : 0) + (showPengeluaranFC ? 1 : 0) + (showPengeluaranNonFC ? 1 : 0) + (showTransferMasuk ? 1 : 0) + (showTransferKeluar ? 1 : 0) + 1}
                       className="py-14 px-4 text-center text-slate-400"
                     >
                       <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
@@ -1047,6 +1115,24 @@ export const CashReport = ({
                         </td>
                       )}
 
+                      {/* Transfer Masuk */}
+                      {showTransferMasuk && (
+                        <td className="py-2.5 px-3 text-right font-mono-num border-r border-slate-100 min-w-[130px]">
+                          {row.transferMasuk > 0
+                            ? <span className="font-semibold text-cyan-700">{formatRupiah(row.transferMasuk)}</span>
+                            : <span className="text-slate-300 font-normal">—</span>}
+                        </td>
+                      )}
+
+                      {/* Transfer Keluar */}
+                      {showTransferKeluar && (
+                        <td className="py-2.5 px-3 text-right font-mono-num border-r border-slate-100 min-w-[130px]">
+                          {row.transferKeluar > 0
+                            ? <span className="font-semibold text-cyan-800">{formatRupiah(row.transferKeluar)}</span>
+                            : <span className="text-slate-300 font-normal">—</span>}
+                        </td>
+                      )}
+
                       {/* Keterangan: HANYA Deskripsi Transaksi Non Forecast */}
                       <td className="py-2.5 px-3 text-slate-700 text-[11px] min-w-[260px] max-w-md">
                         {row.keterangan ? (
@@ -1094,17 +1180,27 @@ export const CashReport = ({
                         {formatRupiah(grandTotal.pengeluaranNonForecast)}
                       </td>
                     )}
+                    {showTransferMasuk && (
+                      <td className="py-3 px-3 text-right font-mono-num border-r border-corporate-700 bg-cyan-950/70 font-semibold text-cyan-200">
+                        {formatRupiah(grandTotal.transferMasuk)}
+                      </td>
+                    )}
+                    {showTransferKeluar && (
+                      <td className="py-3 px-3 text-right font-mono-num border-r border-corporate-700 bg-cyan-900/70 font-semibold text-cyan-100">
+                        {formatRupiah(grandTotal.transferKeluar)}
+                      </td>
+                    )}
                     <td className="py-3 px-3 text-[10px] text-slate-400 italic">
                       {reportRows.length} baris ({grandTotal.txCount} transaksi)
                     </td>
                   </tr>
 
                   {/* Ringkasan Net Arus Kas */}
-                  {jenisFilter === 'all' && (
+                  {showPemasukan && showPengeluaran && (
                     <tr className="bg-slate-800 text-white text-xs font-bold">
                       <td className="sticky-col sticky left-0 z-30 bg-slate-800 py-2.5 px-3 border-r border-slate-700" colSpan={3}>
                         <span className="text-[10px] uppercase tracking-wider text-slate-300">
-                          Net Arus Kas (Pemasukan − Pengeluaran)
+                          Net Arus Kas Operasional (Pemasukan − Pengeluaran)
                         </span>
                       </td>
                       <td className="py-2.5 px-3 border-r border-slate-700 text-right font-mono-num text-slate-300 text-[11px]">
@@ -1122,8 +1218,16 @@ export const CashReport = ({
                       >
                         Total Keluar: {formatRupiah(activePengeluaran)}
                       </td>
+                      {showTransfer && (
+                        <td
+                          colSpan={(showTransferMasuk ? 1 : 0) + (showTransferKeluar ? 1 : 0)}
+                          className="py-2.5 px-3 text-right font-mono-num text-cyan-300 border-r border-slate-700 text-[10px]"
+                        >
+                          Trf: {formatRupiah(grandTotal.transferMasuk + grandTotal.transferKeluar)}
+                        </td>
+                      )}
                       <td className="py-2.5 px-3 text-[10px] text-slate-400 italic">
-                        {activeNet >= 0 ? 'Surplus Kas' : 'Defisit Kas'}
+                        {activeNet >= 0 ? 'Surplus Operasional' : 'Defisit Operasional'}
                       </td>
                     </tr>
                   )}
