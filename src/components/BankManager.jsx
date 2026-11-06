@@ -35,7 +35,8 @@ export const BankManager = ({
   onUpdateBank, 
   onAddTransactions,
   currentUser,
-  companyName = 'PT GRAHA PRIMA ENERGI'
+  companyName = 'PT GRAHA PRIMA ENERGI',
+  onSwitchAccount
 }) => {
   const isViewer = currentUser?.role === 'viewer';
 
@@ -702,9 +703,26 @@ export const BankManager = ({
             </form>
           </div>
         ) : (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs text-amber-900 font-semibold">
-            <Lock className="w-5 h-5 text-amber-600 shrink-0" />
-            <span>Akses Terbatas (Read-Only): Penambahan, pengubahan, dan penghapusan rekening bank/kas dikunci untuk akun tamu.</span>
+          <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-xs text-amber-950 shadow-xs">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                <Lock className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-amber-950">Form Pendaftaran Rekening & Transfer Terkunci (Mode Tamu)</p>
+                <p className="text-amber-800/90 text-xs mt-0.5">
+                  Akun Anda berstatus Read-Only. Untuk menambah rekening bank/kas baru atau mencatat mutasi transfer antar rekening, silakan login sebagai <strong>Admin Keuangan</strong> atau <strong>Staf Pemakai</strong>.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onSwitchAccount}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
+            >
+              <span>Ganti Akun untuk Input Data</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 

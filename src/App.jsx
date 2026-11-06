@@ -18,7 +18,7 @@ import {
 } from './data/initialData';
 import { subscribeToDoc, saveToDoc } from './services/firebase';
 import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense, isKasAccount } from './utils/transactionHelper';
-import { CheckCircle, ShieldAlert, Lock, Printer } from 'lucide-react';
+import { CheckCircle, ShieldAlert, Lock, Printer, AlertCircle, ArrowRight } from 'lucide-react';
 
 export function App() {
   const [syncStatus, setSyncStatus] = useState('connecting'); // 'connecting' | 'connected' | 'error'
@@ -238,9 +238,35 @@ export function App() {
     };
   }, []);
 
-  const showNotification = (msg, type = 'success') => {
+  const showNotification = (msg, type = 'success', duration = 3500) => {
     setNotification({ msg, type });
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => {
+      setNotification((curr) => (curr && curr.msg === msg ? null : curr));
+    }, duration);
+  };
+
+  const handleCloudSave = async (docName, data, successMsg = null) => {
+    try {
+      await saveToDoc(docName, data);
+      setSyncStatus('connected');
+      if (successMsg) {
+        showNotification(successMsg, 'success');
+      }
+    } catch (err) {
+      console.error(`Gagal menyimpan ke Firestore [${docName}]:`, err);
+      setSyncStatus('error');
+      let errorDetail = 'Terjadi kendala koneksi ke server Cloud.';
+      if (err?.code === 'permission-denied') {
+        errorDetail = 'Izin database Cloud ditolak (Firebase Security Rules memblokir akses tulis). Periksa rules database.';
+      } else if (err?.code === 'resource-exhausted') {
+        errorDetail = 'Batas kapasitas dokumen Cloud Firestore terlampaui (> 1 MB per dokumen).';
+      } else if (err?.code === 'unavailable') {
+        errorDetail = 'Server Cloud Firebase sedang offline / tidak terjangkau. Data tetap tersimpan aman di browser lokal.';
+      } else if (err?.message) {
+        errorDetail = err.message;
+      }
+      showNotification(`Gagal sinkronisasi ke server: ${errorDetail}`, 'error', 6500);
+    }
   };
 
   const handleForceSyncToCloud = async () => {
@@ -252,10 +278,12 @@ export function App() {
       if (transactions.length > 0) { await saveToDoc('transactions', transactions); count++; }
       if (users.length > 0) { await saveToDoc('users', users); count++; }
       if (companyName) { await saveToDoc('settings', { companyName }); count++; }
+      setSyncStatus('connected');
       showNotification('Sukses! Semua data (' + banks.length + ' bank, ' + forecasts.length + ' forecast, ' + transactions.length + ' mutasi) telah tersinkronisasi ke Cloud.', 'success');
     } catch (err) {
       console.error('Manual sync error:', err);
-      showNotification('Gagal sinkron: ' + err.message, 'error');
+      setSyncStatus('error');
+      showNotification('Gagal sinkron: ' + (err?.message || 'Izin atau koneksi database bermasalah'), 'error', 6000);
     }
   };
 
@@ -271,24 +299,29 @@ export function App() {
     }
   };
 
+  const handleSwitchAccount = () => {
+    setCurrentUser(null);
+    showNotification('Silakan masuk dengan akun Admin Keuangan atau Operator untuk melakukan input data.', 'info', 4500);
+  };
+
   const handleAddUser = (newUser) => {
     const updated = [...users, newUser];
     setUsers(updated);
-    saveToDoc('users', updated).catch(() => {});
+    handleCloudSave('users', updated);
     showNotification(`Pengguna ${newUser.name} berhasil didaftarkan.`);
   };
 
   const handleDeleteUser = (userId) => {
     const updated = users.filter(u => u.id !== userId);
     setUsers(updated);
-    saveToDoc('users', updated).catch(() => {});
+    handleCloudSave('users', updated);
     showNotification('Pengguna berhasil dihapus.');
   };
 
   const handleUpdateUser = (userId, updatedFields) => {
     const updated = users.map(u => u.id === userId ? { ...u, ...updatedFields } : u);
     setUsers(updated);
-    saveToDoc('users', updated).catch(() => {});
+    handleCloudSave('users', updated);
     if (currentUser?.id === userId) {
       setCurrentUser(prev => ({ ...prev, ...updatedFields }));
     }
@@ -454,20 +487,28 @@ export function App() {
     .reduce((sum, f) => sum + (Number(f.nominal) || 0), 0);
 
   const handleAddBank = (newBank) => {
-    if (currentUser?.role === 'viewer') return;
+    if (currentUser?.role === 'viewer') {
+      showNotification('Akses ditolak: Akun Viewer tidak memiliki izin menambah rekening bank/kas.', 'warning');
+      return;
+    }
     setBanks(prev => {
       const updated = [...prev, newBank];
-      saveToDoc('banks', updated).catch(() => {});
+      handleCloudSave('banks', updated);
       return updated;
     });
     showNotification(`Bank ${newBank.name} berhasil ditambahkan.`);
   };
 
   const handleAddBanks = (newBanksList) => {
-    if (currentUser?.role === 'viewer' || !newBanksList?.length) return;
+    if (currentUser?.role === 'viewer' || !newBanksList?.length) {
+      if (currentUser?.role === 'viewer') {
+        showNotification('Akses ditolak: Akun Viewer tidak memiliki izin mengimpor rekening.', 'warning');
+      }
+      return;
+    }
     setBanks(prev => {
       const updated = [...prev, ...newBanksList];
-      saveToDoc('banks', updated).catch(() => {});
+      handleCloudSave('banks', updated);
       return updated;
     });
     showNotification(`Berhasil mengimpor ${newBanksList.length} rekening bank.`);
@@ -486,7 +527,7 @@ export function App() {
     const idSet = new Set(bankIds);
     const updated = banks.filter(b => !idSet.has(b.id));
     setBanks(updated);
-    saveToDoc('banks', updated).catch(() => {});
+    handleCloudSave('banks', updated);
     showNotification(`${bankIds.length} rekening bank berhasil dihapus.`);
   };
 
@@ -499,7 +540,7 @@ export function App() {
     }
     const updated = banks.filter(b => b.id !== bankId);
     setBanks(updated);
-    saveToDoc('banks', updated).catch(() => {});
+    handleCloudSave('banks', updated);
     showNotification('Bank berhasil dihapus.');
   };
 
@@ -507,25 +548,33 @@ export function App() {
     if (currentUser?.role === 'viewer') return;
     const updated = banks.map(b => b.id === bankId ? { ...b, ...updatedFields } : b);
     setBanks(updated);
-    saveToDoc('banks', updated).catch(() => {});
+    handleCloudSave('banks', updated);
     showNotification('Bank berhasil diperbarui.');
   };
 
   const handleAddForecast = (newPlan) => {
-    if (currentUser?.role === 'viewer') return;
+    if (currentUser?.role === 'viewer') {
+      showNotification('Akses ditolak: Akun Viewer tidak memiliki izin menambah rencana forecast.', 'warning');
+      return;
+    }
     setForecasts(prev => {
       const updated = [newPlan, ...prev];
-      saveToDoc('forecasts', updated).catch(() => {});
+      handleCloudSave('forecasts', updated);
       return updated;
     });
     showNotification('Rencana forecast berhasil didaftarkan.');
   };
 
   const handleAddForecasts = (newForecastsList) => {
-    if (currentUser?.role === 'viewer' || !newForecastsList?.length) return;
+    if (currentUser?.role === 'viewer' || !newForecastsList?.length) {
+      if (currentUser?.role === 'viewer') {
+        showNotification('Akses ditolak: Akun Viewer tidak memiliki izin mengimpor forecast.', 'warning');
+      }
+      return;
+    }
     setForecasts(prev => {
       const updated = [...newForecastsList, ...prev];
-      saveToDoc('forecasts', updated).catch(() => {});
+      handleCloudSave('forecasts', updated);
       return updated;
     });
     showNotification(`Berhasil mengimpor ${newForecastsList.length} rencana forecast.`);
@@ -544,7 +593,7 @@ export function App() {
     const idSet = new Set(forecastIds);
     const updated = forecasts.filter(f => !idSet.has(f.id));
     setForecasts(updated);
-    saveToDoc('forecasts', updated).catch(() => {});
+    handleCloudSave('forecasts', updated);
     showNotification(`${forecastIds.length} rencana forecast berhasil dihapus.`);
   };
 
@@ -557,7 +606,7 @@ export function App() {
     }
     const updated = forecasts.filter(f => f.id !== planId);
     setForecasts(updated);
-    saveToDoc('forecasts', updated).catch(() => {});
+    handleCloudSave('forecasts', updated);
     showNotification('Rencana forecast berhasil dihapus.');
   };
 
@@ -565,15 +614,18 @@ export function App() {
     if (currentUser?.role === 'viewer') return;
     const updated = forecasts.map(f => f.id === planId ? { ...f, ...updatedFields } : f);
     setForecasts(updated);
-    saveToDoc('forecasts', updated).catch(() => {});
+    handleCloudSave('forecasts', updated);
     showNotification('Rencana forecast berhasil diperbarui.');
   };
 
   const handleAddTransaction = (newTx) => {
-    if (currentUser?.role === 'viewer') return;
+    if (currentUser?.role === 'viewer') {
+      showNotification('Akses ditolak: Akun Viewer tidak memiliki izin mencatat transaksi mutasi.', 'warning');
+      return;
+    }
     setTransactions(prev => {
       const updated = [newTx, ...prev];
-      saveToDoc('transactions', updated).catch(() => {});
+      handleCloudSave('transactions', updated);
       return updated;
     });
     if (newTx.planId === 'unplanned') {
@@ -584,10 +636,15 @@ export function App() {
   };
 
   const handleAddTransactions = (newTransactionsList) => {
-    if (currentUser?.role === 'viewer' || !newTransactionsList?.length) return;
+    if (currentUser?.role === 'viewer' || !newTransactionsList?.length) {
+      if (currentUser?.role === 'viewer') {
+        showNotification('Akses ditolak: Akun Viewer tidak memiliki izin mengimpor transaksi mutasi.', 'warning');
+      }
+      return;
+    }
     setTransactions(prev => {
       const updated = [...newTransactionsList, ...prev];
-      saveToDoc('transactions', updated).catch(() => {});
+      handleCloudSave('transactions', updated);
       return updated;
     });
     showNotification(`Berhasil mengimpor ${newTransactionsList.length} mutasi kas.`);
@@ -597,7 +654,7 @@ export function App() {
     if (currentUser?.role === 'viewer') return;
     const updated = transactions.filter(t => t.id !== txId);
     setTransactions(updated);
-    saveToDoc('transactions', updated).catch(() => {});
+    handleCloudSave('transactions', updated);
     showNotification('Transaksi berhasil dihapus.');
   };
 
@@ -605,13 +662,13 @@ export function App() {
     if (currentUser?.role === 'viewer') return;
     const updated = transactions.map(t => t.id === txId ? { ...t, ...updatedFields } : t);
     setTransactions(updated);
-    saveToDoc('transactions', updated).catch(() => {});
+    handleCloudSave('transactions', updated);
     showNotification('Transaksi aktual berhasil diperbarui.');
   };
 
   const handleSetCompanyName = (newName) => {
     setCompanyName(newName);
-    saveToDoc('settings', { companyName: newName }).catch(() => {});
+    handleCloudSave('settings', { companyName: newName });
   };
 
   const handleDeleteTransactionsBatch = (txIds) => {
@@ -619,7 +676,7 @@ export function App() {
     const idSet = new Set(txIds);
     const updated = transactions.filter(t => !idSet.has(t.id));
     setTransactions(updated);
-    saveToDoc('transactions', updated).catch(() => {});
+    handleCloudSave('transactions', updated);
     showNotification(`${txIds.length} transaksi berhasil dihapus.`);
   };
 
@@ -639,9 +696,9 @@ export function App() {
     setForecasts([]);
     setBanks(resetBanks);
 
-    saveToDoc('transactions', []).catch(() => {});
-    saveToDoc('forecasts', []).catch(() => {});
-    saveToDoc('banks', resetBanks).catch(() => {});
+    handleCloudSave('transactions', []);
+    handleCloudSave('forecasts', []);
+    handleCloudSave('banks', resetBanks);
 
     showNotification('Seluruh data transaksi, rencana forecast, dan saldo bank/kas telah direset ke 0.');
   };
@@ -663,10 +720,24 @@ export function App() {
     <div className="min-h-screen flex flex-col bg-slate-100/90 text-slate-800">
       
       {notification && (
-        <div className="fixed bottom-5 right-5 z-50 animate-bounce">
-          <div className={`px-4 py-3 rounded-xl shadow-xl flex items-center gap-2.5 text-xs font-bold border ${notification.type === 'warning' ? 'bg-amber-900 text-amber-100 border-amber-700' : 'bg-corporate-950 text-white border-corporate-700'}`}>
-            {notification.type === 'warning' ? <ShieldAlert className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-            <span>{notification.msg}</span>
+        <div className="fixed bottom-5 right-5 z-50 max-w-md shadow-2xl transition-all duration-300">
+          <div className={`px-4 py-3 rounded-2xl shadow-xl flex items-start gap-2.5 text-xs font-bold border ${
+            notification.type === 'error'
+              ? 'bg-rose-950 text-rose-100 border-rose-700 shadow-rose-950/40'
+              : notification.type === 'warning'
+              ? 'bg-amber-950 text-amber-100 border-amber-700 shadow-amber-950/40'
+              : 'bg-corporate-950 text-white border-corporate-700 shadow-corporate-950/40'
+          }`}>
+            {notification.type === 'error' ? (
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            ) : notification.type === 'warning' ? (
+              <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 leading-relaxed">
+              <span>{notification.msg}</span>
+            </div>
           </div>
         </div>
       )}
@@ -692,19 +763,30 @@ export function App() {
         
         {/* Banner Pembatasan Akses untuk Tamu / Viewer */}
         {isViewer && (
-          <div className="bg-amber-500/10 border border-amber-400/40 rounded-2xl p-4 flex items-center gap-3 text-amber-900 shadow-xs">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0">
-              <Lock className="w-5 h-5" />
-            </div>
-            <div className="text-xs">
-              <div className="font-bold flex items-center gap-1.5 text-amber-950">
-                <span>Mode User Review (Read-Only)</span>
-                <span className="text-[10px] bg-amber-200/80 text-amber-900 px-2 py-0.2 rounded-full font-semibold">Hak Akses Review</span>
+          <div className="bg-amber-500/10 border border-amber-400/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-amber-900 shadow-xs">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                <Lock className="w-5 h-5" />
               </div>
-              <p className="text-amber-800/90 mt-0.5">
-                Anda login sebagai User Review. Anda dapat meninjau saldo kas, rekapitulasi rencana & mutasi, serta mencetak PDF. Fitur input, edit, dan hapus data dinonaktifkan.
-              </p>
+              <div className="text-xs">
+                <div className="font-bold flex items-center gap-1.5 text-amber-950">
+                  <span>Mode User Review (Read-Only)</span>
+                  <span className="text-[10px] bg-amber-200/80 text-amber-900 px-2 py-0.2 rounded-full font-semibold">Hak Akses Terbatas</span>
+                </div>
+                <p className="text-amber-800/90 mt-0.5">
+                  Anda login sebagai User Review. Fitur input, edit, dan hapus data dinonaktifkan. Silakan berpindah ke akun Operator atau Admin jika ingin menginput data.
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={handleSwitchAccount}
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
+              title="Ganti akun untuk mendapatkan hak akses input data"
+            >
+              <span>Ganti Akun (Login Operator)</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -758,6 +840,7 @@ export function App() {
                 onAddTransaction={handleAddTransaction}
                 onAddTransactions={handleAddTransactions}
                 currentUser={currentUser}
+                onSwitchAccount={handleSwitchAccount}
               />
             </section>
 
@@ -793,6 +876,7 @@ export function App() {
               onUpdateBank={handleUpdateBank}
               onAddTransactions={handleAddTransactions}
               currentUser={currentUser}
+              onSwitchAccount={handleSwitchAccount}
             />
           </section>
         )}
@@ -809,6 +893,7 @@ export function App() {
               onDeleteForecastsBatch={handleDeleteForecastsBatch}
               onUpdateForecast={handleUpdateForecast}
               currentUser={currentUser}
+              onSwitchAccount={handleSwitchAccount}
             />
           </section>
         )}

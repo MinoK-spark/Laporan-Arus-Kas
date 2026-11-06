@@ -284,6 +284,11 @@ export const ReconciliationTable = ({
       const dateCmp = sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
       if (dateCmp !== 0) return dateCmp;
 
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      const timeCmp = sortDateOrder === 'asc' ? timeA - timeB : timeB - timeA;
+      if (timeCmp !== 0) return timeCmp;
+
       if (a.tipe !== b.tipe) {
         return a.tipe === 'pemasukan' ? -1 : 1;
       }
@@ -594,7 +599,11 @@ export const ReconciliationTable = ({
       const subTx = [...rawSub].sort((a, b) => {
         const dateA = a.tanggal || '';
         const dateB = b.tanggal || '';
-        return sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+        const dateCmp = sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+        if (dateCmp !== 0) return dateCmp;
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return sortDateOrder === 'asc' ? timeA - timeB : timeB - timeA;
       });
       const actual = subTx.reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
       const diff = plan.nominal - actual;
@@ -727,16 +736,34 @@ export const ReconciliationTable = ({
               )}
             </div>
 
-            {/* Sort Tanggal Button */}
-            <button
-              type="button"
-              onClick={() => setSortDateOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer text-slate-700 shadow-xs"
-              title={`Urutan Tanggal: ${sortDateOrder === 'desc' ? 'Terbaru ke Terlama' : 'Terlama ke Terbaru'}`}
-            >
-              <ArrowUpDown className="w-3.5 h-3.5 text-corporate-600" />
-              <span>Tanggal: <strong>{sortDateOrder === 'desc' ? 'Terbaru' : 'Terlama'}</strong></span>
-            </button>
+            {/* Sort Tanggal Transaksi Button */}
+            <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold" title="Urutan Tanggal Transaksi">
+              <span className="text-[10px] text-slate-500 font-bold px-1.5 uppercase select-none">Tgl:</span>
+              <button
+                type="button"
+                onClick={() => setSortDateOrder('desc')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                  sortDateOrder === 'desc'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Urutan tanggal transaksi: Terbaru ke Terlama"
+              >
+                <span>↓ Terbaru</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSortDateOrder('asc')}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                  sortDateOrder === 'asc'
+                    ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Urutan tanggal transaksi: Terlama ke Terbaru"
+              >
+                <span>↑ Terlama</span>
+              </button>
+            </div>
 
             {/* Tombol Export Data Excel */}
             <button
@@ -897,7 +924,20 @@ export const ReconciliationTable = ({
                   title="Pilih Semua Data Rekonsiliasi"
                 />
               </th>
-              <th className="py-3 px-4">Deskripsi Rencana & Periode</th>
+              <th className="py-3 px-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span>Deskripsi Rencana & Tanggal Transaksi</span>
+                  <button
+                    type="button"
+                    onClick={() => setSortDateOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-[10px] font-bold text-slate-700 transition-colors cursor-pointer shadow-2xs"
+                    title={`Klik untuk ubah urutan tanggal transaksi (Saat ini: ${sortDateOrder === 'desc' ? 'Terbaru ke Terlama' : 'Terlama ke Terbaru'})`}
+                  >
+                    <ArrowUpDown className="w-3 h-3 text-corporate-600" />
+                    <span>Tanggal: {sortDateOrder === 'desc' ? '↓ Terbaru' : '↑ Terlama'}</span>
+                  </button>
+                </div>
+              </th>
               <th className="py-3 px-4 text-center">Tipe</th>
               <th className="py-3 px-4 text-right">Target Forecast</th>
               <th className="py-3 px-4 text-right">Realisasi Aktual</th>
@@ -945,7 +985,11 @@ export const ReconciliationTable = ({
               const subTransactions = [...rawSub].sort((a, b) => {
                 const dateA = a.tanggal || '';
                 const dateB = b.tanggal || '';
-                return sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+                const dateCmp = sortDateOrder === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+                if (dateCmp !== 0) return dateCmp;
+                const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                return sortDateOrder === 'asc' ? timeA - timeB : timeB - timeA;
               });
               const actual = subTransactions.reduce((sum, t) => sum + t.nominal, 0);
               const isExpanded = !!expandedPlans[plan.id];
@@ -1113,8 +1157,21 @@ export const ReconciliationTable = ({
             {activeTab !== 'forecast' && filteredUnplanned.length > 0 && (
               <>
                 <tr className="bg-rose-100/80 border-t-2 border-rose-300">
-                  <td colSpan="7" className="py-2.5 px-4 font-bold text-rose-950 text-xs">
-                    <AlertTriangle className="w-4 h-4 inline mr-2 text-rose-600" /> TRANSAKSI NON FORECAST
+                  <td colSpan="7" className="py-2 px-4 font-bold text-rose-950 text-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span>
+                        <AlertTriangle className="w-4 h-4 inline mr-2 text-rose-600" /> TRANSAKSI NON FORECAST
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSortDateOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/90 hover:bg-white text-rose-950 border border-rose-300 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                        title={`Urutkan tanggal transaksi non forecast (Saat ini: ${sortDateOrder === 'desc' ? 'Terbaru ke Terlama' : 'Terlama ke Terbaru'})`}
+                      >
+                        <ArrowUpDown className="w-3 h-3 text-rose-600" />
+                        <span>Tanggal: {sortDateOrder === 'desc' ? '↓ Terbaru' : '↑ Terlama'}</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
                 {sortedUnplanned.map((tx) => {

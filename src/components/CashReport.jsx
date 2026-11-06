@@ -71,8 +71,9 @@ export const CashReport = ({
   // Mode pengelompokan Bank: 'pisah' (1 baris per Tanggal x Bank) | 'gabung' (1 baris per Tanggal, gabung seluruh bank)
   const [bankGroupingMode, setBankGroupingMode] = useState('pisah');
 
-  // Urutan Tanggal: 'asc' (Paling Lama ke Baru: 1 -> 31) | 'desc' (Paling Baru ke Lama: 31 -> 1)
-  const [sortDateOrder, setSortDateOrder] = useState('asc');
+  // Urutan Keterangan: 'asc' (Paling Lama ke Baru) | 'desc' (Paling Baru ke Lama)
+  // Hanya berlaku pada urutan catatan deskripsi di kolom Keterangan (baris tanggal tabel tetap konsisten kronologis)
+  const [sortKeteranganOrder, setSortKeteranganOrder] = useState('asc');
 
   // Toggle panel filter terbuka/tertutup
   const [filterOpen, setFilterOpen] = useState(true);
@@ -185,14 +186,16 @@ export const CashReport = ({
       const totalTransaksi = txList.reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
       // Keterangan: HANYA deskripsi dari transaksi non-forecast saja (transfer & forecast TIDAK dimasukkan)
-      // Diurutkan secara kronologis (paling lama ke baru / asc, lalu urutan waktu pembuatan)
+      // Diurutkan sesuai sortKeteranganOrder ('asc': Lama ke Baru, 'desc': Baru ke Lama)
       const nonForecastTxs = txList
         .filter(t => !isForecastTx(t) && !isTransferTransaction(t))
         .slice()
         .sort((a, b) => {
           const dateCmp = (a.tanggal || '').localeCompare(b.tanggal || '');
-          if (dateCmp !== 0) return sortDateOrder === 'asc' ? dateCmp : -dateCmp;
-          return (a.createdAt || 0) - (b.createdAt || 0);
+          if (dateCmp !== 0) return sortKeteranganOrder === 'asc' ? dateCmp : -dateCmp;
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return sortKeteranganOrder === 'asc' ? timeA - timeB : timeB - timeA;
         });
 
       const keteranganList = nonForecastTxs
@@ -220,9 +223,8 @@ export const CashReport = ({
     // ─── Cabang 1: Mode Gabung Bank (1 baris per Tanggal) ───
     if (bankGroupingMode === 'gabung') {
       const datesSet = new Set(matchedTx.map(t => t.tanggal));
-      const sortedDates = Array.from(datesSet).sort((a, b) =>
-        sortDateOrder === 'asc' ? a.localeCompare(b) : b.localeCompare(a)
-      );
+      // Urutan baris tabel tanggal selalu kronologis (1 -> 31)
+      const sortedDates = Array.from(datesSet).sort((a, b) => a.localeCompare(b));
 
       return sortedDates.map(tanggal => {
         const todayTxs = matchedTx.filter(t => t.tanggal === tanggal);
@@ -254,10 +256,11 @@ export const CashReport = ({
     // ─── Cabang 2: Mode Pisah Bank (1 baris per Tanggal x Bank) ───
     const keys = new Set();
     matchedTx.forEach(t => keys.add(`${t.tanggal}__${t.bankId}`));
+    // Urutan baris tabel tanggal selalu kronologis (1 -> 31), lalu nama bank
     const sortedKeys = Array.from(keys).sort((a, b) => {
       const [tglA, bankA] = a.split('__');
       const [tglB, bankB] = b.split('__');
-      const dateCmp = sortDateOrder === 'asc' ? tglA.localeCompare(tglB) : tglB.localeCompare(tglA);
+      const dateCmp = tglA.localeCompare(tglB);
       if (dateCmp !== 0) return dateCmp;
       return bankA.localeCompare(bankB);
     });
@@ -280,7 +283,7 @@ export const CashReport = ({
       };
     }).filter(Boolean);
 
-  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, selectedTypes, forecastFilter, bankGroupingMode, sortDateOrder]);
+  }, [transactions, banks, forecasts, selectedMonth, selectedBankIds, selectedTypes, forecastFilter, bankGroupingMode, sortKeteranganOrder]);
 
   // ─── Grand Total ──────────────────────────────────────────────────────────
   const grandTotal = useMemo(() => ({
@@ -381,7 +384,7 @@ export const CashReport = ({
     const tagMode = bankGroupingMode === 'gabung' ? '_GabungBank' : '_PisahBank';
     const tagTypes = `_${selectedTypes.join('_')}`;
     const tagForecast = forecastFilter === 'forecast' ? '_Forecast' : forecastFilter === 'non_forecast' ? '_Non_Forecast' : '';
-    const tagSort = sortDateOrder === 'asc' ? '_LamaKeBaru' : '_BaruKeLama';
+    const tagSort = sortKeteranganOrder === 'asc' ? '_KetLamaKeBaru' : '_KetBaruKeLama';
     downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTypes}${tagForecast}${tagSort}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
   };
 
@@ -473,7 +476,7 @@ export const CashReport = ({
                     {forecastFilter === 'forecast' ? '🎯 Forecast Saja' : forecastFilter === 'non_forecast' ? '⚡ Non Forecast Saja' : 'Semua Transaksi'}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-slate-100 text-slate-700 border-slate-200">
-                    {sortDateOrder === 'asc' ? '📅 1 → 31 (Lama ke Baru)' : '📅 31 → 1 (Baru ke Lama)'}
+                    {sortKeteranganOrder === 'asc' ? '📝 Ket: Lama ke Baru' : '📝 Ket: Baru ke Lama'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
@@ -483,29 +486,30 @@ export const CashReport = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Opsi Urutan Tanggal di Top Bar */}
-              <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold">
+              {/* Opsi Urutan Keterangan di Top Bar */}
+              <div className="flex items-center p-0.5 bg-slate-200/70 rounded-xl text-xs font-semibold" title="Urutan catatan deskripsi non-forecast pada kolom keterangan">
+                <span className="text-[10px] text-slate-500 font-bold px-2 uppercase select-none">Keterangan:</span>
                 <button
                   type="button"
-                  onClick={() => setSortDateOrder('asc')}
+                  onClick={() => setSortKeteranganOrder('asc')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    sortDateOrder === 'asc'
+                    sortKeteranganOrder === 'asc'
                       ? 'bg-white text-slate-900 shadow-2xs font-bold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
-                  title="Urutkan dari tanggal paling lama ke paling baru (1 -> 31)"
+                  title="Urutkan catatan keterangan dari transaksi lama ke baru"
                 >
-                  <span>📅 Lama ke Baru</span>
+                  <span>Lama ke Baru</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSortDateOrder('desc')}
+                  onClick={() => setSortKeteranganOrder('desc')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                    sortDateOrder === 'desc'
+                    sortKeteranganOrder === 'desc'
                       ? 'bg-white text-slate-900 shadow-2xs font-bold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
-                  title="Urutkan dari tanggal paling baru ke paling lama (31 -> 1)"
+                  title="Urutkan catatan keterangan dari transaksi baru ke lama"
                 >
                   <span>Baru ke Lama</span>
                 </button>
@@ -728,36 +732,36 @@ export const CashReport = ({
                 </div>
               </div>
 
-              {/* Filter 3: Urutan Tanggal */}
+              {/* Filter 3: Urutan Keterangan */}
               <div>
                 <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  <Calendar className="w-3.5 h-3.5 text-corporate-600" />
-                  Urutan Tanggal
+                  <FileText className="w-3.5 h-3.5 text-corporate-600" />
+                  Urutan Keterangan
                 </label>
                 <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl text-xs font-semibold">
                   <button
                     type="button"
-                    onClick={() => setSortDateOrder('asc')}
+                    onClick={() => setSortKeteranganOrder('asc')}
                     className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
-                      sortDateOrder === 'asc'
+                      sortKeteranganOrder === 'asc'
                         ? 'bg-white text-slate-900 shadow-sm font-bold'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
-                    title="Urutkan tanggal 1 ke 31 (paling lama ke baru)"
+                    title="Urutkan catatan keterangan: Transaksi lama ke baru"
                   >
-                    1 → 31 (Lama)
+                    Lama ke Baru
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSortDateOrder('desc')}
+                    onClick={() => setSortKeteranganOrder('desc')}
                     className={`flex-1 py-1.5 px-1.5 rounded-lg cursor-pointer transition-all whitespace-nowrap text-center ${
-                      sortDateOrder === 'desc'
+                      sortKeteranganOrder === 'desc'
                         ? 'bg-white text-slate-900 shadow-sm font-bold'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
-                    title="Urutkan tanggal 31 ke 1 (paling baru ke lama)"
+                    title="Urutkan catatan keterangan: Transaksi baru ke lama"
                   >
-                    31 → 1 (Baru)
+                    Baru ke Lama
                   </button>
                 </div>
               </div>
@@ -905,8 +909,8 @@ export const CashReport = ({
               <span>
                 Menampilkan <strong className="text-slate-800">{reportRows.length} baris</strong> ({grandTotal.txCount} mutasi transaksi) dari periode{' '}
                 <strong className="text-slate-800">{formatMonthIndo(selectedMonth)}</strong> • Tampilan:{' '}
-                <strong className="text-purple-700">{bankGroupingMode === 'gabung' ? 'Bank Digabung per Tanggal' : 'Bank Terpisah per Tanggal'}</strong> • Urutan:{' '}
-                <strong className="text-slate-800">{sortDateOrder === 'asc' ? '📅 1 → 31 (Lama ke Baru)' : '📅 31 → 1 (Baru ke Lama)'}</strong> • Filter:{' '}
+                <strong className="text-purple-700">{bankGroupingMode === 'gabung' ? 'Bank Digabung per Tanggal' : 'Bank Terpisah per Tanggal'}</strong> • Urutan Keterangan:{' '}
+                <strong className="text-slate-800">{sortKeteranganOrder === 'asc' ? '📝 Lama ke Baru' : '📝 Baru ke Lama'}</strong> • Filter:{' '}
                 <strong className="text-slate-800">
                   {forecastFilter === 'forecast' ? 'Hanya Forecast' : forecastFilter === 'non_forecast' ? 'Hanya Non Forecast' : 'Semua Status'}
                 </strong> • Tipe Mutasi:{' '}
@@ -1012,7 +1016,7 @@ export const CashReport = ({
                 <p className="text-[10px] text-slate-600 font-medium mt-0.5">
                   Periode: <strong className="text-slate-900">{formatMonthIndo(selectedMonth)}</strong>
                   {` • Tipe Mutasi: ${selectedTypes.map(t => t === 'pemasukan' ? 'Pemasukan' : t === 'pengeluaran' ? 'Pengeluaran' : 'Transfer').join(' + ')}`}
-                  {` • Urutan: ${sortDateOrder === 'asc' ? 'Paling Lama ke Baru (1→31)' : 'Paling Baru ke Lama (31→1)'}`}
+                  {` • Urutan Keterangan: ${sortKeteranganOrder === 'asc' ? 'Lama ke Baru' : 'Baru ke Lama'}`}
                   {` • Format: ${bankGroupingMode === 'gabung' ? 'Gabung Bank per Tanggal' : 'Pisah per Rekening'}`}
                 </p>
               </div>
@@ -1095,9 +1099,21 @@ export const CashReport = ({
                     </th>
                   )}
                   <th className="py-3 px-3 min-w-[260px]">
-                    Keterangan
-                    <div className="text-[9px] font-normal text-amber-300 normal-case tracking-normal">
-                      (Hanya Deskripsi Non Forecast)
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div>
+                        <span>Keterangan</span>
+                        <div className="text-[9px] font-normal text-amber-300 normal-case tracking-normal">
+                          (Hanya Deskripsi Non Forecast)
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSortKeteranganOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-corporate-800 hover:bg-corporate-700 text-amber-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs border border-corporate-600"
+                        title={`Ubah urutan keterangan: ${sortKeteranganOrder === 'asc' ? 'Saat ini Lama ke Baru (Klik untuk Baru ke Lama)' : 'Saat ini Baru ke Lama (Klik untuk Lama ke Baru)'}`}
+                      >
+                        <span>{sortKeteranganOrder === 'asc' ? '↑ Lama ke Baru' : '↓ Baru ke Lama'}</span>
+                      </button>
                     </div>
                   </th>
                 </tr>

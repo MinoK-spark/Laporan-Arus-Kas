@@ -37,7 +37,8 @@ export const ForecastManager = ({
   onDeleteForecast, 
   onDeleteForecastsBatch, 
   onUpdateForecast, 
-  currentUser 
+  currentUser,
+  onSwitchAccount
 }) => {
   const isViewer = currentUser?.role === 'viewer';
   const [tipe, setTipe] = useState('pemasukan');
@@ -302,6 +303,74 @@ export const ForecastManager = ({
     setEditingPlan(null);
   };
 
+  // Export Data Rencana Forecast ke Excel
+  const handleExportData = () => {
+    const targetList = selectedIds.length > 0
+      ? sortedForecasts.filter(f => selectedIds.includes(f.id))
+      : sortedForecasts;
+
+    if (!targetList || targetList.length === 0) {
+      alert('Tidak ada data rencana forecast untuk diexport.');
+      return;
+    }
+
+    let totalTarget = 0;
+    let totalRealisasi = 0;
+    let totalSisa = 0;
+
+    const exportRows = targetList.map((plan, index) => {
+      const realisasi = (transactions || [])
+        .filter(t => t.planId === plan.id)
+        .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const sisa = (Number(plan.nominal) || 0) - realisasi;
+      const persentase = plan.nominal > 0 ? Math.round((realisasi / plan.nominal) * 100) : 0;
+      const txCount = (transactions || []).filter(t => t.planId === plan.id).length;
+
+      totalTarget += Number(plan.nominal) || 0;
+      totalRealisasi += realisasi;
+      totalSisa += sisa;
+
+      return {
+        'No': index + 1,
+        'Deskripsi Rencana': plan.deskripsi || '-',
+        'Periode Bulan': plan.periodeBulan || '-',
+        'Nama Periode': formatBulan(plan.periodeBulan),
+        'Tipe Rencana': plan.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+        'Target Nominal (Rp)': Number(plan.nominal) || 0,
+        'Realisasi Aktual (Rp)': realisasi,
+        'Sisa Target (Rp)': sisa,
+        '% Tercapai': `${persentase}%`,
+        'Jumlah Transaksi Terkait': txCount,
+        'Status': persentase >= 100 ? 'Tercapai Penuh' : realisasi > 0 ? 'Sebagian Tercapai' : 'Belum Ada Realisasi',
+        'ID Forecast': plan.id || '-'
+      };
+    });
+
+    // Baris Grand Total Akumulasi
+    exportRows.push({
+      'No': '',
+      'Deskripsi Rencana': 'TOTAL',
+      'Periode Bulan': '',
+      'Nama Periode': '',
+      'Tipe Rencana': '',
+      'Target Nominal (Rp)': totalTarget,
+      'Realisasi Aktual (Rp)': totalRealisasi,
+      'Sisa Target (Rp)': totalSisa,
+      '% Tercapai': totalTarget > 0 ? `${Math.round((totalRealisasi / totalTarget) * 100)}%` : '0%',
+      'Jumlah Transaksi Terkait': '',
+      'Status': '',
+      'ID Forecast': ''
+    });
+
+    const periodTag = filterPeriode !== 'all' ? `_${filterPeriode}` : '_Semua_Periode';
+    const typeTag = filterTipe !== 'all' ? `_${filterTipe}` : '';
+    const selectedTag = selectedIds.length > 0 ? '_Terpilih' : '';
+    const dateTag = new Date().toISOString().slice(0, 10);
+    const fileName = `Master_Forecast${periodTag}${typeTag}${selectedTag}_${dateTag}.xlsx`;
+
+    downloadExcel(exportRows, fileName, 'Master Forecast');
+  };
+
   // Download Excel Template for Forecasts
   const handleDownloadTemplate = () => {
     const templateData = [
@@ -548,9 +617,26 @@ export const ForecastManager = ({
             </form>
           </div>
         ) : (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-xs text-amber-900 font-semibold">
-            <Lock className="w-5 h-5 text-amber-600 shrink-0" />
-            <span>Akses Terbatas (Read-Only): Penambahan, pengubahan, dan penghapusan target forecast dikunci untuk akun tamu.</span>
+          <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-xs text-amber-950 shadow-xs">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                <Lock className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-amber-950">Form Rencana Forecast Terkunci (Mode Tamu / Read-Only)</p>
+                <p className="text-amber-800/90 text-xs mt-0.5">
+                  Akun Anda tidak memiliki izin untuk menambah atau mengedit target forecast. Masuklah sebagai <strong>Admin Keuangan</strong> atau <strong>Staf Pemakai</strong> untuk membuat rencana anggaran.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onSwitchAccount}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
+            >
+              <span>Ganti Akun untuk Input Data</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
 
@@ -568,32 +654,43 @@ export const ForecastManager = ({
                 )}
               </p>
             </div>
-            {!isViewer && (
-              <div className="flex items-center gap-2">
-                <button 
-                  type="button"
-                  onClick={handleDownloadTemplate}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl shadow-xs hover:bg-emerald-100 transition-all cursor-pointer"
-                  title="Unduh Template Excel (.xlsx)"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Template Excel
-                </button>
-                <input 
-                  type="file" 
-                  accept=".xlsx, .xls, .csv" 
-                  className="hidden" 
-                  ref={fileInputRef} 
-                  onChange={handleImportExcel} 
-                />
-                <button 
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-corporate-700 bg-white border border-slate-200 rounded-xl shadow-xs hover:bg-slate-50 transition-all cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5" /> Import Excel
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <button 
+                type="button"
+                onClick={handleExportData}
+                disabled={sortedForecasts.length === 0}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 disabled:pointer-events-none rounded-xl shadow-xs transition-all cursor-pointer"
+                title="Export seluruh data rencana forecast yang tampil ke file Excel (.xlsx)"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Data
+              </button>
+              {!isViewer && (
+                <>
+                  <button 
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl shadow-xs hover:bg-emerald-100 transition-all cursor-pointer"
+                    title="Unduh Template Excel (.xlsx)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> Template Excel
+                  </button>
+                  <input 
+                    type="file" 
+                    accept=".xlsx, .xls, .csv" 
+                    className="hidden" 
+                    ref={fileInputRef} 
+                    onChange={handleImportExcel} 
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-corporate-700 bg-white border border-slate-200 rounded-xl shadow-xs hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Import Excel
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Baris Filter Periode Bulan & Tipe Rencana */}
@@ -689,6 +786,14 @@ export const ForecastManager = ({
                 <span className="font-bold">{selectedIds.length} rencana forecast dipilih</span>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportData}
+                  className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 px-3 py-1.5 rounded-lg shadow-sm transition-all cursor-pointer"
+                  title="Export hanya rencana forecast yang dipilih ke Excel"
+                >
+                  <Download className="w-3.5 h-3.5" /> Export Terpilih ({selectedIds.length})
+                </button>
                 <button
                   type="button"
                   onClick={() => setSelectedIds([])}

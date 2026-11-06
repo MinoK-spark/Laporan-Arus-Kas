@@ -114,6 +114,48 @@ export function LoginPage({ onLogin, users = [], companyName = 'PT GRAHA PRIMA E
             </button>
           </form>
 
+          {/* Quick Select / Role Helper */}
+          <div className="mt-5 pt-4 border-t border-slate-100">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-center">
+              Pilihan Akun Cepat & Hak Akses:
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('admin@grahaenergi.com');
+                  setPassword('admin123');
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-left transition-all cursor-pointer group"
+              >
+                <div className="text-[11px] font-bold text-slate-800 group-hover:text-emerald-700">Admin</div>
+                <div className="text-[9px] text-slate-400 group-hover:text-emerald-600 leading-tight">Akses Penuh</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('pemakai@grahaenergi.com');
+                  setPassword('user123');
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-left transition-all cursor-pointer group"
+              >
+                <div className="text-[11px] font-bold text-slate-800 group-hover:text-blue-700">Operator</div>
+                <div className="text-[9px] text-slate-400 group-hover:text-blue-600 leading-tight">Input Mutasi</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('review@external.com');
+                  setPassword('review123');
+                }}
+                className="p-2 rounded-xl bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-left transition-all cursor-pointer group"
+              >
+                <div className="text-[11px] font-bold text-slate-800 group-hover:text-amber-700">Viewer</div>
+                <div className="text-[9px] text-slate-400 group-hover:text-amber-600 leading-tight">Read-Only</div>
+              </button>
+            </div>
+          </div>
+
         </div>
 
         <div className="mt-6 text-center text-xs text-slate-400">

@@ -1,10 +1,10 @@
 import { isKasAccount } from '../utils/transactionHelper';
 import React, { useState, useEffect, useRef } from 'react';
-import { Receipt, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet } from 'lucide-react';
+import { Receipt, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet, ArrowRight } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 
-export const TransactionForm = ({ banks, forecasts, transactions, onAddTransaction, onAddTransactions, currentUser }) => {
+export const TransactionForm = ({ banks, forecasts, transactions, onAddTransaction, onAddTransactions, currentUser, onSwitchAccount }) => {
   const isViewer = currentUser?.role === 'viewer';
 
   const [bankId, setBankId] = useState(banks[0]?.id || '');
@@ -214,6 +214,10 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
     const cleanDeskStr = deskripsi.trim();
     const targetBankId = bankId || banks[0]?.id;
+    if (!targetBankId) {
+      alert('Belum ada rekening bank/kas terdaftar. Silakan tambahkan rekening bank atau kas operasional terlebih dahulu di menu Rekening Bank & Kas.');
+      return;
+    }
     const normDate = (d) => (d ? String(d).trim().substring(0, 10) : '');
 
     // Khusus Mutasi Pemindahan Dana Antar Akun (Internal Transfer - Dicatatkan Tersendiri)
@@ -316,9 +320,23 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
         <p className="text-xs text-slate-300 max-w-md mt-1.5 leading-relaxed">
           Formulir pencatatan mutasi kas dinonaktifkan untuk akun Tamu / Auditor Eksternal. Anda memiliki izin penuh untuk memantau ringkasan saldo, detail rekonsiliasi, dan mengunduh laporan PDF.
         </p>
-        <div className="mt-4 inline-flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-300 border border-amber-800/50">
+        <div className="mt-3 inline-flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full text-xs font-semibold text-amber-300 border border-amber-800/50">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
-          Izin Pengguna: Lihat Saja (Read-Only)
+          <span>Izin Pengguna: Lihat Saja (Read-Only)</span>
+        </div>
+
+        <div className="mt-5 pt-4 border-t border-slate-800/80 w-full max-w-sm flex flex-col items-center">
+          <p className="text-[11px] text-slate-400 mb-2.5">
+            Perlu melakukan pencatatan transaksi mutasi kas?
+          </p>
+          <button
+            type="button"
+            onClick={onSwitchAccount}
+            className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+          >
+            <span>Ganti Akun / Masuk sebagai Operator</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     );
