@@ -16,7 +16,7 @@ import {
   INITIAL_FORECASTS, 
   INITIAL_TRANSACTIONS 
 } from './data/initialData';
-import { subscribeToDoc, saveToDoc } from './services/firebase';
+import { subscribeToDoc, saveToDoc, sanitizeForFirestore } from './services/firebase';
 import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense, isKasAccount } from './utils/transactionHelper';
 import { CheckCircle, ShieldAlert, Lock, Printer, AlertCircle, ArrowRight } from 'lucide-react';
 
@@ -78,8 +78,14 @@ export function App() {
   });
 
   const [transactions, setTransactions] = useState(() => {
-    const saved = localStorage.getItem('gpe_transactions');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+    try {
+      const saved = localStorage.getItem('gpe_transactions');
+      if (!saved) return INITIAL_TRANSACTIONS;
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? sanitizeForFirestore(parsed) : INITIAL_TRANSACTIONS;
+    } catch {
+      return INITIAL_TRANSACTIONS;
+    }
   });
 
   const [notification, setNotification] = useState(null);
@@ -660,7 +666,8 @@ export function App() {
 
   const handleUpdateTransaction = (txId, updatedFields) => {
     if (currentUser?.role === 'viewer') return;
-    const updated = transactions.map(t => t.id === txId ? { ...t, ...updatedFields } : t);
+    const cleanFields = sanitizeForFirestore(updatedFields);
+    const updated = transactions.map(t => t.id === txId ? sanitizeForFirestore({ ...t, ...cleanFields }) : t);
     setTransactions(updated);
     handleCloudSave('transactions', updated);
     showNotification('Transaksi aktual berhasil diperbarui.');

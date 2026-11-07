@@ -169,9 +169,9 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
           newTransactionsToAdd.push({
             id: `tx-imp-${Date.now()}-${index}`,
-            bankId: targetBankId,
+            bankId: targetBankId || '',
             tipe: cleanTipe,
-            planId: targetPlanId,
+            planId: targetPlanId || 'unplanned',
             deskripsi: cleanDeskStr,
             nominal: cleanNom,
             tanggal: cleanTgl,
@@ -288,9 +288,9 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
 
     const newTx = {
       id: 'tx-' + Date.now(),
-      bankId: targetBankId,
+      bankId: targetBankId || '',
       tipe,
-      planId,
+      planId: planId || 'unplanned',
       deskripsi: cleanDeskStr,
       nominal: num,
       tanggal,
