@@ -75,7 +75,8 @@ export function EditTransactionModal({
       nominal: parsedNom,
       planId: planId || 'unplanned',
       isTransfer: Boolean(transaction.isTransfer),
-      transferDirection: transaction.transferDirection || null
+      transferDirection: transaction.transferDirection || null,
+      createdAt: transaction.createdAt || new Date().toISOString()
     };
 
     onSave(updatedFields);

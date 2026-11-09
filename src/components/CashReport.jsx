@@ -185,17 +185,47 @@ export const CashReport = ({
       // Total Transaksi: Akumulasi seluruh nominal transaksi yang lolos filter di baris ini
       const totalTransaksi = txList.reduce((s, t) => s + (Number(t.nominal) || 0), 0);
 
+      // Helper ekstraksi waktu input transaksi secara presisi (prioritas createdAt -> ekstraksi timestamp id -> urutan bawaan)
+      const getTxInputTime = (tx) => {
+        if (!tx) return 0;
+        // 1. Jika ada createdAt eksplisit
+        if (tx.createdAt) {
+          const parsed = new Date(tx.createdAt).getTime();
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+        // 2. Ekstraksi angka milidetik waktu pembuatan dari ID transaksi
+        if (typeof tx.id === 'string') {
+          const match = tx.id.match(/tx-(?:imp-|trf-in-|trf-out-)?(\d{10,14})/);
+          if (match && match[1]) {
+            const idTime = parseInt(match[1], 10);
+            if (!isNaN(idTime) && idTime > 0) {
+              const idxMatch = tx.id.match(/tx-imp-\d+-(\d+)/);
+              const subIdx = idxMatch ? parseInt(idxMatch[1], 10) : 0;
+              return idTime + subIdx;
+            }
+          }
+        }
+        return 0;
+      };
+
       // Keterangan: HANYA deskripsi dari transaksi non-forecast saja (transfer & forecast TIDAK dimasukkan)
-      // Diurutkan sesuai sortKeteranganOrder ('asc': Lama ke Baru, 'desc': Baru ke Lama)
+      // Diurutkan sesuai sortKeteranganOrder ('asc': Terlebih dahulu di-input / Lama ke Baru, 'desc': Baru ke Lama)
       const nonForecastTxs = txList
         .filter(t => !isForecastTx(t) && !isTransferTransaction(t))
         .slice()
         .sort((a, b) => {
           const dateCmp = (a.tanggal || '').localeCompare(b.tanggal || '');
           if (dateCmp !== 0) return sortKeteranganOrder === 'asc' ? dateCmp : -dateCmp;
-          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return sortKeteranganOrder === 'asc' ? timeA - timeB : timeB - timeA;
+
+          const timeA = getTxInputTime(a);
+          const timeB = getTxInputTime(b);
+          if (timeA !== timeB) {
+            return sortKeteranganOrder === 'asc' ? timeA - timeB : timeB - timeA;
+          }
+
+          return sortKeteranganOrder === 'asc' 
+            ? String(a.id || '').localeCompare(String(b.id || ''))
+            : String(b.id || '').localeCompare(String(a.id || ''));
         });
 
       const keteranganList = nonForecastTxs
@@ -497,7 +527,7 @@ export const CashReport = ({
                       ? 'bg-white text-slate-900 shadow-2xs font-bold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
-                  title="Urutkan catatan keterangan dari transaksi lama ke baru"
+                  title="Urutkan keterangan: Data yang terlebih dahulu di-input (Lama ke Baru)"
                 >
                   <span>Lama ke Baru</span>
                 </button>
@@ -509,7 +539,7 @@ export const CashReport = ({
                       ? 'bg-white text-slate-900 shadow-2xs font-bold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
-                  title="Urutkan catatan keterangan dari transaksi baru ke lama"
+                  title="Urutkan keterangan: Data yang paling akhir di-input (Baru ke Lama)"
                 >
                   <span>Baru ke Lama</span>
                 </button>
@@ -747,7 +777,7 @@ export const CashReport = ({
                         ? 'bg-white text-slate-900 shadow-sm font-bold'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
-                    title="Urutkan catatan keterangan: Transaksi lama ke baru"
+                    title="Urutkan catatan keterangan: Data yang terlebih dahulu di-input (Lama ke Baru)"
                   >
                     Lama ke Baru
                   </button>
@@ -759,7 +789,7 @@ export const CashReport = ({
                         ? 'bg-white text-slate-900 shadow-sm font-bold'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
-                    title="Urutkan catatan keterangan: Transaksi baru ke lama"
+                    title="Urutkan catatan keterangan: Data yang paling akhir di-input (Baru ke Lama)"
                   >
                     Baru ke Lama
                   </button>

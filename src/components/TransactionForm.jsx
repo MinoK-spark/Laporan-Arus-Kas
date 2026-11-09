@@ -167,6 +167,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
           const isDuplicate = isDuplicateInDb || isDuplicateInBatch;
           if (isDuplicate) duplicateCounter++;
 
+          const importTime = new Date(Date.now() + index).toISOString();
           newTransactionsToAdd.push({
             id: `tx-imp-${Date.now()}-${index}`,
             bankId: targetBankId || '',
@@ -175,6 +176,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
             deskripsi: cleanDeskStr,
             nominal: cleanNom,
             tanggal: cleanTgl,
+            createdAt: importTime,
             isDuplicate: Boolean(isDuplicate),
             duplicateReason: isDuplicate ? 'Terdeteksi kesamaan tanggal, rekening, deskripsi, dan nominal dengan data yang ada' : null
           });
@@ -242,6 +244,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
         deskripsi: `Transfer Keluar ke [${toAcc?.name || 'Tujuan'}]${cleanNote}`,
         nominal: num,
         tanggal,
+        createdAt: new Date(now).toISOString(),
         buktiRef: buktiRef.trim()
       };
 
@@ -256,6 +259,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
         deskripsi: `Transfer Masuk dari [${fromAcc?.name || 'Asal'}]${cleanNote}`,
         nominal: num,
         tanggal,
+        createdAt: new Date(now + 1).toISOString(),
         buktiRef: buktiRef.trim()
       };
 
@@ -286,14 +290,16 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
       return sameDate && sameNominal && sameDesc && sameBank;
     });
 
+    const now = Date.now();
     const newTx = {
-      id: 'tx-' + Date.now(),
+      id: 'tx-' + now,
       bankId: targetBankId || '',
       tipe,
       planId: planId || 'unplanned',
       deskripsi: cleanDeskStr,
       nominal: num,
       tanggal,
+      createdAt: new Date(now).toISOString(),
       buktiRef: buktiRef.trim(),
       isDuplicate: Boolean(isDuplicate),
       duplicateReason: isDuplicate ? 'Terdeteksi kesamaan tanggal, rekening, deskripsi, dan nominal dengan data yang ada' : null

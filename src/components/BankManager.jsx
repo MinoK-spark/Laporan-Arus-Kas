@@ -505,7 +505,8 @@ export const BankManager = ({
       planId: 'unplanned',
       deskripsi: `Transfer Keluar ke [${toAcc.name}]${cleanNote}`,
       nominal: nominal,
-      tanggal: tgl
+      tanggal: tgl,
+      createdAt: new Date(now).toISOString()
     };
 
     // 2. Pemasukan ke Akun Tujuan (Transfer Masuk - Dicatatkan Tersendiri)
@@ -519,7 +520,8 @@ export const BankManager = ({
       planId: 'unplanned',
       deskripsi: `Transfer Masuk dari [${fromAcc.name}]${cleanNote}`,
       nominal: nominal,
-      tanggal: tgl
+      tanggal: tgl,
+      createdAt: new Date(now + 1).toISOString()
     };
 
     if (onAddTransactions) {
