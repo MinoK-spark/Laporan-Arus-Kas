@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo, formatMonthIndo } from '../utils/formatters';
 import { isTransferTransaction, getTransferDirection, isOperationalIncome, isOperationalExpense, isKasAccount } from '../utils/transactionHelper';
-import { downloadExcel } from '../utils/excelHelper';
+import { downloadExcel, exportStyledCashReport } from '../utils/excelHelper';
 
 export const CashReport = ({
   banks = [],
@@ -356,66 +356,98 @@ export const CashReport = ({
 
   const activeNet = (showPemasukan ? activePemasukan : 0) - (showPengeluaran ? activePengeluaran : 0);
 
-  // ─── Export Excel ──────────────────────────────────────────────────────────
-  const handleExportExcel = () => {
+  // ─── Export Excel (Format & Warna Identik dengan PDF) ────────────────────
+  const handleExportExcel = async () => {
     if (reportRows.length === 0) return alert('Tidak ada data untuk diexport.');
-    
-    const exportData = reportRows.map((r, i) => {
-      const row = {
-        'No': i + 1,
-        'Tanggal Transaksi': formatDateIndo(r.tanggal),
-        'Rekening': r.bankGroupingMode === 'gabung' ? r.bankName : `${r.tipeAkun === 'Kas' ? '💵' : r.tipeAkun === 'Bank' ? '🏦' : '📂'} ${r.bankName}`,
-        'Total Transaksi (Rp)': r.totalTransaksi,
-      };
 
-      if (showPemasukanFC) {
-        row['Pemasukan Forecast (Rp)'] = r.pemasukanForecast;
-      }
-      if (showPemasukanNonFC) {
-        row['Pemasukan Non Forecast (Rp)'] = r.pemasukanNonForecast;
-      }
-
-      if (showPengeluaranFC) {
-        row['Pengeluaran Forecast (Rp)'] = r.pengeluaranForecast;
-      }
-      if (showPengeluaranNonFC) {
-        row['Pengeluaran Non Forecast (Rp)'] = r.pengeluaranNonForecast;
-      }
-
-      if (showTransferMasuk) {
-        row['Transfer Masuk (Rp)'] = r.transferMasuk;
-      }
-      if (showTransferKeluar) {
-        row['Transfer Keluar (Rp)'] = r.transferKeluar;
-      }
-
-      row['Keterangan (Non Forecast)'] = r.keterangan;
-      return row;
-    });
-
-    // Baris Grand Total
-    const totalRow = {
-      'No': '',
-      'Tanggal Transaksi': 'GRAND TOTAL',
-      'Rekening': '',
-      'Total Transaksi (Rp)': grandTotal.totalTransaksi,
-    };
-
-    if (showPemasukanFC) totalRow['Pemasukan Forecast (Rp)'] = grandTotal.pemasukanForecast;
-    if (showPemasukanNonFC) totalRow['Pemasukan Non Forecast (Rp)'] = grandTotal.pemasukanNonForecast;
-    if (showPengeluaranFC) totalRow['Pengeluaran Forecast (Rp)'] = grandTotal.pengeluaranForecast;
-    if (showPengeluaranNonFC) totalRow['Pengeluaran Non Forecast (Rp)'] = grandTotal.pengeluaranNonForecast;
-    if (showTransferMasuk) totalRow['Transfer Masuk (Rp)'] = grandTotal.transferMasuk;
-    if (showTransferKeluar) totalRow['Transfer Keluar (Rp)'] = grandTotal.transferKeluar;
-    totalRow['Keterangan (Non Forecast)'] = '';
-    exportData.push(totalRow);
-
-    const periodLabel = selectedMonth ? formatMonthIndo(selectedMonth) : 'Semua_Periode';
+    const periodLabel = selectedMonth ? formatMonthIndo(selectedMonth) : 'Semua Periode';
     const tagMode = bankGroupingMode === 'gabung' ? '_GabungBank' : '_PisahBank';
     const tagTypes = `_${selectedTypes.join('_')}`;
     const tagForecast = forecastFilter === 'forecast' ? '_Forecast' : forecastFilter === 'non_forecast' ? '_Non_Forecast' : '';
     const tagSort = sortKeteranganOrder === 'asc' ? '_KetLamaKeBaru' : '_KetBaruKeLama';
-    downloadExcel(exportData, `Laporan_Kas${tagMode}${tagTypes}${tagForecast}${tagSort}_${periodLabel.replace(/\s/g, '_')}.xlsx`, 'Laporan Kas');
+    const fileName = `Laporan_Kas${tagMode}${tagTypes}${tagForecast}${tagSort}_${periodLabel.replace(/\s/g, '_')}.xlsx`;
+
+    const reportTitle = `LAPORAN MUTASI ARUS KAS ${bankGroupingMode === 'gabung' ? '(BANK DIGABUNG)' : '(PER REKENING)'}${forecastFilter === 'forecast' ? ' - HANYA FORECAST' : forecastFilter === 'non_forecast' ? ' - HANYA NON FORECAST' : ''}${!selectedTypes.includes('transfer') ? ' [MURNI OPERASIONAL]' : ''}`;
+
+    const metadata = {
+      periode: periodLabel,
+      tipeMutasi: selectedTypes.map(t => t === 'pemasukan' ? 'Pemasukan' : t === 'pengeluaran' ? 'Pengeluaran' : 'Transfer').join(' + '),
+      urutanKeterangan: sortKeteranganOrder === 'asc' ? 'Lama ke Baru' : 'Baru ke Lama',
+      format: bankGroupingMode === 'gabung' ? 'Gabung Bank per Tanggal' : 'Pisah per Rekening',
+      tanggalCetak: printTimestamp.date,
+      waktu: printTimestamp.time,
+      dicetakOleh: currentUser?.name || 'Staff Finance'
+    };
+
+    const summary = {
+      totalTransaksi: grandTotal.totalTransaksi,
+      pemasukan: activePemasukan,
+      pengeluaran: activePengeluaran,
+      netMutasi: activeNet
+    };
+
+    // Susunan kolom yang serasi dengan tampilan PDF
+    const columns = [
+      { key: 'no', label: 'NO', align: 'center', width: 6 },
+      { key: 'tanggal', label: 'TANGGAL TRANSAKSI', align: 'center', width: 16 },
+      { key: 'rekening', label: 'REKENING', align: 'left', width: 26 },
+      { key: 'totalTransaksi', label: 'TOTAL TRANSAKSI', align: 'right', width: 22, isNumeric: true, bold: true, fontColor: 'FF0F172A', headerColor: 'FF020617' }
+    ];
+
+    if (showPemasukanFC) {
+      columns.push({ key: 'pemasukanForecast', label: '↑ PEMASUKAN FORECAST', align: 'right', width: 22, isNumeric: true, fontColor: 'FF047857', headerColor: 'FF064E3B' });
+    }
+    if (showPemasukanNonFC) {
+      columns.push({ key: 'pemasukanNonForecast', label: '↑ PEMASUKAN NON FORECAST', align: 'right', width: 22, isNumeric: true, fontColor: 'FF047857', headerColor: 'FF047857' });
+    }
+    if (showPengeluaranFC) {
+      columns.push({ key: 'pengeluaranForecast', label: '↓ PENGELUARAN FORECAST', align: 'right', width: 22, isNumeric: true, fontColor: 'FFBE123C', headerColor: 'FF881337' });
+    }
+    if (showPengeluaranNonFC) {
+      columns.push({ key: 'pengeluaranNonForecast', label: '↓ PENGELUARAN NON FORECAST', align: 'right', width: 22, isNumeric: true, fontColor: 'FFBE123C', headerColor: 'FFBE123C' });
+    }
+    if (showTransferMasuk) {
+      columns.push({ key: 'transferMasuk', label: '⇄ TRANSFER MASUK', align: 'right', width: 20, isNumeric: true, fontColor: 'FF0E7490', headerColor: 'FF155E75' });
+    }
+    if (showTransferKeluar) {
+      columns.push({ key: 'transferKeluar', label: '⇄ TRANSFER KELUAR', align: 'right', width: 20, isNumeric: true, fontColor: 'FF0E7490', headerColor: 'FF0E7490' });
+    }
+
+    columns.push({ key: 'keterangan', label: 'KETERANGAN (HANYA DESKRIPSI NON FORECAST)', align: 'left', width: 48, wrapText: true, headerColor: 'FF0F172A' });
+
+    const rows = reportRows.map((r, i) => {
+      let ketText = '';
+      if (r.keteranganList && r.keteranganList.length > 1) {
+        ketText = r.keteranganList.map(k => `• ${k}`).join('\n');
+      } else if (r.keterangan) {
+        ketText = r.keterangan;
+      }
+
+      return {
+        no: i + 1,
+        tanggal: formatDateIndo(r.tanggal),
+        rekening: r.bankGroupingMode === 'gabung' ? r.bankName : `${r.tipeAkun === 'Kas' ? '💵 ' : r.tipeAkun === 'Bank' ? '🏦 ' : '📂 '}${r.bankName}`,
+        totalTransaksi: r.totalTransaksi,
+        pemasukanForecast: r.pemasukanForecast,
+        pemasukanNonForecast: r.pemasukanNonForecast,
+        pengeluaranForecast: r.pengeluaranForecast,
+        pengeluaranNonForecast: r.pengeluaranNonForecast,
+        transferMasuk: r.transferMasuk,
+        transferKeluar: r.transferKeluar,
+        keterangan: ketText
+      };
+    });
+
+    await exportStyledCashReport({
+      companyName,
+      reportTitle,
+      metadata,
+      summary,
+      columns,
+      rows,
+      grandTotal,
+      fileName
+    });
   };
 
   // ─── Print / PDF ──────────────────────────────────────────────────────────
@@ -431,40 +463,113 @@ export const CashReport = ({
     };
   }, []);
 
+  // Hitung persentase lebar kolom saat cetak agar pas 100% A4 Landscape
+  const activeNominalColCount = (showPemasukanFC ? 1 : 0) +
+    (showPemasukanNonFC ? 1 : 0) +
+    (showPengeluaranFC ? 1 : 0) +
+    (showPengeluaranNonFC ? 1 : 0) +
+    (showTransferMasuk ? 1 : 0) +
+    (showTransferKeluar ? 1 : 0);
+
+  const colWidthNominal = activeNominalColCount <= 2 ? '13%' : activeNominalColCount <= 4 ? '10%' : '7.5%';
+  const nominalTotalPercent = parseFloat(colWidthNominal) * activeNominalColCount;
+  const colWidthKeterangan = `${Math.max(100 - (4 + 10 + 14 + 12 + nominalTotalPercent), 20)}%`;
+
   return (
     <div className={`space-y-4 ${isFullWidth ? 'w-full' : ''}`}>
 
-      {/* ── CSS Print Khusus A4 Landscape ── */}
+      {/* ── CSS Print Khusus A4 Landscape (Fit 1 Lembar Width & Clean Pagination) ── */}
       <style>{`
         @media print {
           @page {
             size: A4 landscape;
-            margin: 6mm 6mm 6mm 6mm;
+            margin: 5mm 6mm 5mm 6mm;
           }
-          .sticky-col {
+          html, body {
+            width: 100% !important;
+            height: auto !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .no-print, header, nav, aside {
+            display: none !important;
+          }
+          .sticky-col, .sticky {
             position: static !important;
             box-shadow: none !important;
+            left: auto !important;
             background: transparent !important;
           }
+          #printable-cash-report {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+          #printable-cash-report .overflow-x-auto {
+            overflow: visible !important;
+            max-width: none !important;
+            width: 100% !important;
+          }
           #printable-cash-report table {
-            font-size: 8pt !important;
+            font-size: 7.5pt !important;
             line-height: 1.2 !important;
             width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            table-layout: fixed !important;
+            border-collapse: collapse !important;
           }
           #printable-cash-report th,
           #printable-cash-report td {
-            padding: 4px 6px !important;
+            padding: 2.5px 4px !important;
             border: 0.5pt solid #cbd5e1 !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
+            white-space: normal !important;
+          }
+          #printable-cash-report th {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            font-size: 7.5pt !important;
+            font-weight: 700 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           #printable-cash-report thead {
             display: table-header-group !important;
           }
           #printable-cash-report tfoot {
-            display: table-footer-group !important;
+            display: table-row-group !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           #printable-cash-report tr {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+          }
+          #printable-cash-report td {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          #printable-cash-report .keterangan-cell ul {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          #printable-cash-report .keterangan-cell li {
+            line-height: 1.15 !important;
+            margin-bottom: 1.5px !important;
+            font-size: 7pt !important;
           }
         }
       `}</style>
@@ -1083,7 +1188,20 @@ export const CashReport = ({
 
           {/* Tabel Utama Laporan */}
           <div className="overflow-x-auto max-w-full">
-            <table className="w-full text-left border-collapse text-xs min-w-[1000px]">
+            <table className="w-full text-left border-collapse text-xs min-w-[1000px] print:min-w-0 print:w-full print:table-fixed">
+              <colgroup className="hidden print:table-column-group">
+                <col style={{ width: '4%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '12%' }} />
+                {showPemasukanFC && <col style={{ width: colWidthNominal }} />}
+                {showPemasukanNonFC && <col style={{ width: colWidthNominal }} />}
+                {showPengeluaranFC && <col style={{ width: colWidthNominal }} />}
+                {showPengeluaranNonFC && <col style={{ width: colWidthNominal }} />}
+                {showTransferMasuk && <col style={{ width: colWidthNominal }} />}
+                {showTransferKeluar && <col style={{ width: colWidthNominal }} />}
+                <col style={{ width: colWidthKeterangan }} />
+              </colgroup>
               <thead>
                 <tr className="bg-corporate-900 text-white text-[10px] font-bold uppercase tracking-wider">
                   <th className="sticky-col sticky left-0 z-30 bg-corporate-900 py-3 px-2.5 text-center border-r border-corporate-700 w-11 min-w-[44px]">
@@ -1128,7 +1246,7 @@ export const CashReport = ({
                       ⇄ Transfer<br/>Keluar
                     </th>
                   )}
-                  <th className="py-3 px-3 min-w-[260px]">
+                  <th className="py-3 px-3 min-w-[260px] print:min-w-0">
                     <div className="flex items-center justify-between gap-1.5">
                       <div>
                         <span>Keterangan</span>
@@ -1139,7 +1257,7 @@ export const CashReport = ({
                       <button
                         type="button"
                         onClick={() => setSortKeteranganOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-corporate-800 hover:bg-corporate-700 text-amber-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs border border-corporate-600"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-corporate-800 hover:bg-corporate-700 text-amber-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs border border-corporate-600 no-print"
                         title={`Ubah urutan keterangan: ${sortKeteranganOrder === 'asc' ? 'Saat ini Lama ke Baru (Klik untuk Baru ke Lama)' : 'Saat ini Baru ke Lama (Klik untuk Lama ke Baru)'}`}
                       >
                         <span>{sortKeteranganOrder === 'asc' ? '↑ Lama ke Baru' : '↓ Baru ke Lama'}</span>
@@ -1270,18 +1388,18 @@ export const CashReport = ({
                       )}
 
                       {/* Keterangan: HANYA Deskripsi Transaksi Non Forecast */}
-                      <td className="py-2.5 px-3 text-slate-700 text-[11px] min-w-[260px] max-w-md">
+                      <td className="keterangan-cell py-2.5 px-3 text-slate-700 text-[11px] min-w-[260px] max-w-md print:min-w-0 print:max-w-none print:py-1 print:px-1.5">
                         {row.keteranganList && row.keteranganList.length > 1 ? (
-                          <ul className="space-y-1 text-slate-800">
+                          <ul className="space-y-1 print:space-y-0.5 text-slate-800">
                             {row.keteranganList.map((ket, kIdx) => (
-                              <li key={kIdx} className="flex items-start gap-1.5 leading-relaxed">
-                                <span className="text-amber-500 font-bold shrink-0 leading-tight">•</span>
+                              <li key={kIdx} className="flex items-start gap-1.5 leading-relaxed print:leading-tight print:text-[7pt]">
+                                <span className="text-amber-500 font-bold shrink-0 leading-tight print:text-[7pt]">•</span>
                                 <span className="break-words italic">{ket}</span>
                               </li>
                             ))}
                           </ul>
                         ) : row.keterangan ? (
-                          <span className="italic leading-relaxed block break-words text-slate-800">
+                          <span className="italic leading-relaxed block break-words text-slate-800 print:leading-tight print:text-[7.5pt]">
                             {row.keterangan}
                           </span>
                         ) : (

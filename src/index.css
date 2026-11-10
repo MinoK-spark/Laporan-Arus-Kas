@@ -42,7 +42,7 @@
 @media print {
   @page {
     size: A4 landscape;
-    margin: 8mm 10mm;
+    margin: 5mm 6mm 5mm 6mm;
   }
   html, body {
     width: 100% !important;
@@ -52,6 +52,15 @@
     overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  header, nav, aside, .no-print, [role="navigation"] {
+    display: none !important;
+  }
+  main, section {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
   }
   body * {
     visibility: hidden;
@@ -68,8 +77,7 @@
   }
   #printable-dashboard-summary,
   #printable-management-report,
-  #printable-bank-account-report,
-  #printable-cash-report {
+  #printable-bank-account-report {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -82,22 +90,49 @@
     border: none !important;
     box-shadow: none !important;
     overflow: visible !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
   }
-  #printable-dashboard-summary table,
-  #printable-management-report table,
-  #printable-bank-account-report table,
+  #printable-cash-report {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+  #printable-cash-report .overflow-x-auto {
+    overflow: visible !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
   #printable-cash-report table {
     width: 100% !important;
-    table-layout: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
     border-collapse: collapse !important;
+    font-size: 7.5pt !important;
+    line-height: 1.2 !important;
   }
   #printable-cash-report thead {
     display: table-header-group !important;
   }
   #printable-cash-report tfoot {
-    display: table-footer-group !important;
+    display: table-row-group !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  #printable-dashboard-summary table,
+  #printable-management-report table,
+  #printable-bank-account-report table {
+    width: 100% !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
   }
   #printable-dashboard-summary tr,
   #printable-management-report tr,
@@ -106,14 +141,26 @@
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
+  #printable-cash-report td {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  #printable-cash-report th,
+  #printable-cash-report td {
+    padding: 2.5px 4px !important;
+    border: 0.5pt solid #cbd5e1 !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+  }
   #printable-dashboard-summary th,
   #printable-dashboard-summary td,
   #printable-management-report th,
   #printable-management-report td,
   #printable-bank-account-report th,
-  #printable-bank-account-report td,
-  #printable-cash-report th,
-  #printable-cash-report td {
+  #printable-bank-account-report td {
     border-color: #cbd5e1 !important;
   }
   #printable-cash-report th {
