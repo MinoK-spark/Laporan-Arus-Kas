@@ -194,8 +194,15 @@ export async function exportStyledCashReport({
       } else if (col.key === 'tanggal') {
         cell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FF1E293B' } };
       } else if (col.key === 'keterangan') {
-        cell.font = { name: 'Segoe UI', size: 8.5, italic: true, color: { argb: 'FF334155' } };
-        const textVal = String(cell.value || '');
+        const val = r[col.key];
+        let textVal = '';
+        if (val && typeof val === 'object' && val.richText) {
+          cell.value = val;
+          textVal = val.richText.map(t => t.text).join('');
+        } else {
+          cell.font = { name: 'Segoe UI', size: 8.5, italic: true, color: { argb: 'FF334155' } };
+          textVal = String(cell.value || '');
+        }
         const lines = textVal.split('\n').length;
         if (lines > lineCount) lineCount = lines;
       } else {

@@ -228,10 +228,32 @@ export const CashReport = ({
             : String(b.id || '').localeCompare(String(a.id || ''));
         });
 
-      const keteranganList = nonForecastTxs
-        .map(t => t.deskripsi?.trim())
-        .filter(Boolean);
+      // Format nominal untuk keterangan: (Rp. 500.000)
+      const formatNominalKet = (val) => {
+        if (val === null || val === undefined || isNaN(val)) return '(Rp. 0)';
+        const num = Number(val);
+        const hasDecimal = num % 1 !== 0;
+        const formatted = new Intl.NumberFormat('id-ID', {
+          minimumFractionDigits: hasDecimal ? 2 : 0,
+          maximumFractionDigits: 2
+        }).format(num);
+        return `(Rp. ${formatted})`;
+      };
 
+      const keteranganItems = nonForecastTxs
+        .filter(t => t.deskripsi && t.deskripsi.trim())
+        .map(t => {
+          const desc = t.deskripsi.trim();
+          const nominalFormatted = formatNominalKet(t.nominal);
+          return {
+            text: desc,
+            nominal: Number(t.nominal) || 0,
+            nominalFormatted,
+            fullText: `${desc} ${nominalFormatted}`
+          };
+        });
+
+      const keteranganList = keteranganItems.map(item => item.fullText);
       const keterangan = keteranganList.join(keteranganList.length > 1 ? ' • ' : '');
 
       return {
@@ -246,6 +268,7 @@ export const CashReport = ({
         totalTransaksi,
         keterangan,
         keteranganList,
+        keteranganItems,
         txCount: txList.length,
       };
     };
@@ -416,11 +439,37 @@ export const CashReport = ({
     columns.push({ key: 'keterangan', label: 'KETERANGAN (HANYA DESKRIPSI NON FORECAST)', align: 'left', width: 48, wrapText: true, headerColor: 'FF0F172A' });
 
     const rows = reportRows.map((r, i) => {
-      let ketText = '';
-      if (r.keteranganList && r.keteranganList.length > 1) {
-        ketText = r.keteranganList.map(k => `• ${k}`).join('\n');
-      } else if (r.keterangan) {
-        ketText = r.keterangan;
+      let ketValue;
+      if (r.keteranganItems && r.keteranganItems.length > 0) {
+        if (r.keteranganItems.length > 1) {
+          const richSegments = [];
+          r.keteranganItems.forEach((item, idx) => {
+            richSegments.push({
+              text: `• ${item.text} `,
+              font: { italic: true, size: 8.5, color: { argb: 'FF334155' }, name: 'Segoe UI' }
+            });
+            richSegments.push({
+              text: idx < r.keteranganItems.length - 1 ? `${item.nominalFormatted}\n` : item.nominalFormatted,
+              font: { bold: true, size: 8.5, color: { argb: 'FF0F172A' }, name: 'Segoe UI' }
+            });
+          });
+          ketValue = { richText: richSegments };
+        } else {
+          ketValue = {
+            richText: [
+              {
+                text: `${r.keteranganItems[0].text} `,
+                font: { italic: true, size: 8.5, color: { argb: 'FF334155' }, name: 'Segoe UI' }
+              },
+              {
+                text: r.keteranganItems[0].nominalFormatted,
+                font: { bold: true, size: 8.5, color: { argb: 'FF0F172A' }, name: 'Segoe UI' }
+              }
+            ]
+          };
+        }
+      } else {
+        ketValue = r.keterangan || '-';
       }
 
       return {
@@ -434,7 +483,7 @@ export const CashReport = ({
         pengeluaranNonForecast: r.pengeluaranNonForecast,
         transferMasuk: r.transferMasuk,
         transferKeluar: r.transferKeluar,
-        keterangan: ketText
+        keterangan: ketValue
       };
     });
 
@@ -1389,15 +1438,23 @@ export const CashReport = ({
 
                       {/* Keterangan: HANYA Deskripsi Transaksi Non Forecast */}
                       <td className="keterangan-cell py-2.5 px-3 text-slate-700 text-[11px] min-w-[260px] max-w-md print:min-w-0 print:max-w-none print:py-1 print:px-1.5">
-                        {row.keteranganList && row.keteranganList.length > 1 ? (
+                        {row.keteranganItems && row.keteranganItems.length > 1 ? (
                           <ul className="space-y-1 print:space-y-0.5 text-slate-800">
-                            {row.keteranganList.map((ket, kIdx) => (
+                            {row.keteranganItems.map((item, kIdx) => (
                               <li key={kIdx} className="flex items-start gap-1.5 leading-relaxed print:leading-tight print:text-[7pt]">
                                 <span className="text-amber-500 font-bold shrink-0 leading-tight print:text-[7pt]">•</span>
-                                <span className="break-words italic">{ket}</span>
+                                <span className="break-words">
+                                  <span className="italic text-slate-700">{item.text} </span>
+                                  <strong className="font-bold text-slate-900 not-italic font-mono-num">{item.nominalFormatted}</strong>
+                                </span>
                               </li>
                             ))}
                           </ul>
+                        ) : row.keteranganItems && row.keteranganItems.length === 1 ? (
+                          <span className="leading-relaxed block break-words text-slate-800 print:leading-tight print:text-[7.5pt]">
+                            <span className="italic text-slate-700">{row.keteranganItems[0].text} </span>
+                            <strong className="font-bold text-slate-900 not-italic font-mono-num">{row.keteranganItems[0].nominalFormatted}</strong>
+                          </span>
                         ) : row.keterangan ? (
                           <span className="italic leading-relaxed block break-words text-slate-800 print:leading-tight print:text-[7.5pt]">
                             {row.keterangan}
