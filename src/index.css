@@ -76,7 +76,6 @@
     visibility: visible;
   }
   #printable-dashboard-summary,
-  #printable-management-report,
   #printable-bank-account-report {
     position: absolute !important;
     left: 0 !important;
@@ -91,6 +90,7 @@
     box-shadow: none !important;
     overflow: visible !important;
   }
+  #printable-management-report,
   #printable-cash-report {
     position: static !important;
     left: auto !important;
@@ -135,7 +135,6 @@
     border-collapse: collapse !important;
   }
   #printable-dashboard-summary tr,
-  #printable-management-report tr,
   #printable-bank-account-report tr,
   #printable-cash-report tr {
     page-break-inside: avoid !important;
