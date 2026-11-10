@@ -23,7 +23,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
-import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
+import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate, exportStyledForecastReport } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { BlockedDeleteModal } from './BlockedDeleteModal';
 import { ForecastTransactionsModal } from './ForecastTransactionsModal';
@@ -32,6 +32,7 @@ export const ForecastManager = ({
   banks = [],
   forecasts = [], 
   transactions = [], 
+  companyName = 'PT GRAHA PRIMA ENERGI',
   onAddForecast, 
   onAddForecasts, 
   onDeleteForecast, 
@@ -303,8 +304,8 @@ export const ForecastManager = ({
     setEditingPlan(null);
   };
 
-  // Export Data Rencana Forecast ke Excel
-  const handleExportData = () => {
+  // Export Data Rencana Forecast ke Excel (Format Resmi & Elegan Berbasis ExcelJS)
+  const handleExportData = async () => {
     const targetList = selectedIds.length > 0
       ? sortedForecasts.filter(f => selectedIds.includes(f.id))
       : sortedForecasts;
@@ -318,7 +319,7 @@ export const ForecastManager = ({
     let totalRealisasi = 0;
     let totalSisa = 0;
 
-    const exportRows = targetList.map((plan, index) => {
+    const rows = targetList.map((plan, index) => {
       const realisasi = (transactions || [])
         .filter(t => t.planId === plan.id)
         .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
@@ -331,36 +332,56 @@ export const ForecastManager = ({
       totalSisa += sisa;
 
       return {
-        'No': index + 1,
-        'Deskripsi Rencana': plan.deskripsi || '-',
-        'Periode Bulan': plan.periodeBulan || '-',
-        'Nama Periode': formatBulan(plan.periodeBulan),
-        'Tipe Rencana': plan.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
-        'Target Nominal (Rp)': Number(plan.nominal) || 0,
-        'Realisasi Aktual (Rp)': realisasi,
-        'Sisa Target (Rp)': sisa,
-        '% Tercapai': `${persentase}%`,
-        'Jumlah Transaksi Terkait': txCount,
-        'Status': persentase >= 100 ? 'Tercapai Penuh' : realisasi > 0 ? 'Sebagian Tercapai' : 'Belum Ada Realisasi',
-        'ID Forecast': plan.id || '-'
+        no: index + 1,
+        deskripsi: plan.deskripsi || '-',
+        periodeBulan: formatBulan(plan.periodeBulan),
+        tipe: plan.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+        targetNominal: Number(plan.nominal) || 0,
+        realisasi: realisasi,
+        sisa: sisa,
+        persentase: `${persentase}%`,
+        txCount: `${txCount} tx`,
+        status: persentase >= 100 ? 'Tercapai Penuh' : realisasi > 0 ? 'Sebagian Tercapai' : 'Belum Realisasi'
       };
     });
 
-    // Baris Grand Total Akumulasi
-    exportRows.push({
-      'No': '',
-      'Deskripsi Rencana': 'TOTAL',
-      'Periode Bulan': '',
-      'Nama Periode': '',
-      'Tipe Rencana': '',
-      'Target Nominal (Rp)': totalTarget,
-      'Realisasi Aktual (Rp)': totalRealisasi,
-      'Sisa Target (Rp)': totalSisa,
-      '% Tercapai': totalTarget > 0 ? `${Math.round((totalRealisasi / totalTarget) * 100)}%` : '0%',
-      'Jumlah Transaksi Terkait': '',
-      'Status': '',
-      'ID Forecast': ''
-    });
+    const columns = [
+      { key: 'no', label: 'NO', align: 'center', width: 6 },
+      { key: 'deskripsi', label: 'DESKRIPSI RENCANA', align: 'left', width: 36 },
+      { key: 'periodeBulan', label: 'PERIODE BULAN', align: 'center', width: 16 },
+      { key: 'tipe', label: 'TIPE RENCANA', align: 'center', width: 14 },
+      { key: 'targetNominal', label: 'TARGET NOMINAL', align: 'right', width: 22, isNumeric: true, bold: true, headerColor: 'FF020617' },
+      { key: 'realisasi', label: 'REALISASI AKTUAL', align: 'right', width: 22, isNumeric: true, bold: true, headerColor: 'FF065F46' },
+      { key: 'sisa', label: 'SISA TARGET', align: 'right', width: 20, isNumeric: true, headerColor: 'FF155E75' },
+      { key: 'persentase', label: '% CAPAIAN', align: 'center', width: 14, headerColor: 'FF334155' },
+      { key: 'txCount', label: 'TRANSAKSI', align: 'center', width: 14, headerColor: 'FF334155' },
+      { key: 'status', label: 'STATUS', align: 'center', width: 18, headerColor: 'FF0F172A' }
+    ];
+
+    const metadata = {
+      periode: filterPeriode !== 'all' ? formatBulan(filterPeriode) : 'Semua Periode',
+      tipe: filterTipe === 'pemasukan' ? 'Hanya Pemasukan' : filterTipe === 'pengeluaran' ? 'Hanya Pengeluaran' : 'Semua Tipe Rencana',
+      cakupan: selectedIds.length > 0 ? `Data Terpilih (${selectedIds.length} Rencana)` : `Semua Data (${targetList.length} Rencana)`,
+      tanggalCetak: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+      waktu: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+      dicetakOleh: currentUser?.name || 'Staff Finance'
+    };
+
+    const overallPersen = totalTarget > 0 ? `${Math.round((totalRealisasi / totalTarget) * 100)}%` : '0%';
+
+    const summary = {
+      totalTarget,
+      totalRealisasi,
+      totalSisa,
+      persenTercapai: overallPersen
+    };
+
+    const grandTotal = {
+      targetNominal: totalTarget,
+      realisasi: totalRealisasi,
+      sisa: totalSisa,
+      persenTercapai: overallPersen
+    };
 
     const periodTag = filterPeriode !== 'all' ? `_${filterPeriode}` : '_Semua_Periode';
     const typeTag = filterTipe !== 'all' ? `_${filterTipe}` : '';
@@ -368,7 +389,15 @@ export const ForecastManager = ({
     const dateTag = new Date().toISOString().slice(0, 10);
     const fileName = `Master_Forecast${periodTag}${typeTag}${selectedTag}_${dateTag}.xlsx`;
 
-    downloadExcel(exportRows, fileName, 'Master Forecast');
+    await exportStyledForecastReport({
+      companyName,
+      metadata,
+      summary,
+      columns,
+      rows,
+      grandTotal,
+      fileName
+    });
   };
 
   // Download Excel Template for Forecasts

@@ -894,6 +894,7 @@ export function App() {
               banks={banks}
               forecasts={forecasts}
               transactions={transactions}
+              companyName={companyName}
               onAddForecast={handleAddForecast}
               onAddForecasts={handleAddForecasts}
               onDeleteForecast={handleDeleteForecast}

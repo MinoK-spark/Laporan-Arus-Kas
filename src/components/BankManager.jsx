@@ -9,6 +9,7 @@ import {
   Trash2, 
   Calendar, 
   Upload, 
+  Download,
   Edit3, 
   Lock, 
   FileSpreadsheet, 
@@ -19,7 +20,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput, formatDateIndo } from '../utils/formatters';
-import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
+import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate, exportStyledBankReport } from '../utils/excelHelper';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { BlockedDeleteModal } from './BlockedDeleteModal';
 import { BankAccountReportModal } from './BankAccountReportModal';
@@ -368,6 +369,98 @@ export const BankManager = ({
       }
     ];
     downloadExcel(templateData, 'Template_Import_Bank_Kas.xlsx', 'Master Bank & Kas');
+  };
+
+  // Export Data Master Bank & Kas ke Excel (Format Resmi & Elegan Berbasis ExcelJS)
+  const handleExportData = async () => {
+    const targetAccounts = selectedIds.length > 0
+      ? filteredAccounts.filter(a => selectedIds.includes(a.id))
+      : filteredAccounts;
+
+    if (!targetAccounts || targetAccounts.length === 0) {
+      alert('Tidak ada data rekening bank/kas untuk diexport.');
+      return;
+    }
+
+    let totalSaldoAwal = 0;
+    let totalMasuk = 0;
+    let totalKeluar = 0;
+    let totalSaldoAkhir = 0;
+
+    const rows = targetAccounts.map((acc, index) => {
+      const isKas = isKasAccount(acc);
+      const sAwal = Number(acc.saldoAwalPeriode ?? acc.saldoAwal) || 0;
+      const masuk = Number(acc.totalMasuk) || 0;
+      const keluar = Number(acc.totalKeluar) || 0;
+      const sAkhir = Number(acc.saldoAkhir) || 0;
+      const txCount = transactions.filter(t => t.bankId === acc.id).length;
+
+      totalSaldoAwal += sAwal;
+      totalMasuk += masuk;
+      totalKeluar += keluar;
+      totalSaldoAkhir += sAkhir;
+
+      return {
+        no: index + 1,
+        bankName: acc.name || '-',
+        tipeAkun: isKas ? 'Kas' : 'Bank',
+        noRekening: acc.norek || '-',
+        atasNama: acc.atasNama || '-',
+        saldoAwal: sAwal,
+        totalMasuk: masuk,
+        totalKeluar: keluar,
+        saldoAkhir: sAkhir,
+        txCount: `${txCount} mutasi`
+      };
+    });
+
+    const columns = [
+      { key: 'no', label: 'NO', align: 'center', width: 6 },
+      { key: 'bankName', label: 'NAMA AKUN / BANK', align: 'left', width: 28 },
+      { key: 'tipeAkun', label: 'TIPE AKUN', align: 'center', width: 14 },
+      { key: 'noRekening', label: 'NOMOR REKENING', align: 'center', width: 22 },
+      { key: 'atasNama', label: 'ATAS NAMA (A/N)', align: 'left', width: 24 },
+      { key: 'saldoAwal', label: 'SALDO AWAL', align: 'right', width: 22, isNumeric: true, headerColor: 'FF020617' },
+      { key: 'totalMasuk', label: 'TOTAL MASUK (+)', align: 'right', width: 22, isNumeric: true, fontColor: 'FF047857', headerColor: 'FF065F46' },
+      { key: 'totalKeluar', label: 'TOTAL KELUAR (-)', align: 'right', width: 22, isNumeric: true, fontColor: 'FFBE123C', headerColor: 'FF881337' },
+      { key: 'saldoAkhir', label: 'SALDO AKHIR BERJALAN', align: 'right', width: 24, isNumeric: true, bold: true, fontColor: 'FF047857', headerColor: 'FF047857' },
+      { key: 'txCount', label: 'MUTASI TRANSAKSI', align: 'center', width: 16, headerColor: 'FF334155' }
+    ];
+
+    const metadata = {
+      filterKategori: activeTab === 'bank' ? 'Hanya Rekening Bank' : activeTab === 'kas' ? 'Hanya Kas Tunai' : 'Semua Akun (Kas & Bank)',
+      tanggalCetak: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+      waktu: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+      dicetakOleh: currentUser?.name || 'Staff Finance'
+    };
+
+    const summary = {
+      totalSaldoAwal,
+      totalMasuk,
+      totalKeluar,
+      saldoAkhir: totalSaldoAkhir
+    };
+
+    const grandTotal = {
+      saldoAwal: totalSaldoAwal,
+      totalMasuk,
+      totalKeluar,
+      saldoAkhir: totalSaldoAkhir
+    };
+
+    const tabTag = activeTab === 'bank' ? '_Bank' : activeTab === 'kas' ? '_Kas' : '_Semua';
+    const dateTag = new Date().toISOString().slice(0, 10);
+    const fileName = `Master_Bank_Kas${tabTag}_${dateTag}.xlsx`;
+
+    await exportStyledBankReport({
+      companyName,
+      metadata,
+      summary,
+      columns,
+      rows,
+      grandTotal,
+      fileName
+    });
   };
 
   const handleOpenEditModal = (bank) => {
@@ -739,6 +832,16 @@ export const BankManager = ({
             </div>
             
             <div className="flex flex-wrap items-center gap-2">
+              {/* Tombol Export Excel Berformat Resmi */}
+              <button
+                type="button"
+                onClick={handleExportData}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 border border-emerald-700/80 rounded-xl shadow-xs transition-all cursor-pointer"
+                title="Export seluruh data rekening bank & kas ke Excel dengan format resmi"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Excel
+              </button>
+
               {/* Tombol Transfer Antar Bank / Kas */}
               {!isViewer && (
                 <button
