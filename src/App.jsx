@@ -100,7 +100,10 @@ export function App() {
     }
   }, [currentUser]);
 
-  useEffect(() => localStorage.setItem('gpe_company_name', companyName), [companyName]);
+  useEffect(() => {
+    localStorage.setItem('gpe_company_name', companyName);
+    document.title = companyName ? `Sistem Arus Kas | ${companyName}` : 'Sistem Arus Kas';
+  }, [companyName]);
   useEffect(() => localStorage.setItem('gpe_banks', JSON.stringify(banks)), [banks]);
   useEffect(() => localStorage.setItem('gpe_forecasts', JSON.stringify(forecasts)), [forecasts]);
   useEffect(() => localStorage.setItem('gpe_transactions', JSON.stringify(transactions)), [transactions]);
