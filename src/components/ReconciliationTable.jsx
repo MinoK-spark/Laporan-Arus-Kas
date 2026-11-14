@@ -48,6 +48,7 @@ export const ReconciliationTable = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'forecast', 'non_forecast', 'duplikat'
   const [filterBankId, setFilterBankId] = useState('all');
+  const [filterType, setFilterType] = useState('all'); // 'all', 'pemasukan', 'pengeluaran', 'transfer'
   const [expandedPlans, setExpandedPlans] = useState({});
   const [editingTx, setEditingTx] = useState(null);
   const [editingForecast, setEditingForecast] = useState(null);
@@ -157,6 +158,10 @@ export const ReconciliationTable = ({
 
   const availableForecastCount = useMemo(() => {
     return forecasts.filter((f) => {
+      if (filterType === 'transfer') return false;
+      if (filterType === 'pemasukan' && f.tipe !== 'pemasukan') return false;
+      if (filterType === 'pengeluaran' && f.tipe !== 'pengeluaran') return false;
+
       const planTxList = (planTransactionsMap[f.id] || []).filter(t => {
         if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
         if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
@@ -171,10 +176,14 @@ export const ReconciliationTable = ({
       }
       return true;
     }).length;
-  }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate]);
+  }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate, filterType]);
 
   const availableNonForecastCount = useMemo(() => {
     return unplannedTransactions.filter((t) => {
+      if (filterType === 'transfer' && !isTransferTransaction(t)) return false;
+      if (filterType === 'pemasukan' && !isOperationalIncome(t)) return false;
+      if (filterType === 'pengeluaran' && !isOperationalExpense(t)) return false;
+
       if (cleanSearch) {
         const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
         if (!matchesSearch) return false;
@@ -184,10 +193,14 @@ export const ReconciliationTable = ({
       if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
       return true;
     }).length;
-  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate]);
+  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate, filterType]);
 
   const filteredForecasts = useMemo(() => {
     return forecasts.filter((f) => {
+      if (filterType === 'transfer') return false;
+      if (filterType === 'pemasukan' && f.tipe !== 'pemasukan') return false;
+      if (filterType === 'pengeluaran' && f.tipe !== 'pengeluaran') return false;
+
       // HANYA TERISI JIKA DATA MUTASI DIINPUT SESUAI FILTER:
       const planTxList = (planTransactionsMap[f.id] || []).filter(t => {
         if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
@@ -213,10 +226,14 @@ export const ReconciliationTable = ({
       if (activeTab === 'pengeluaran' && f.tipe !== 'pengeluaran') return false;
       return true;
     });
-  }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab]);
+  }, [forecasts, planTransactionsMap, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab, filterType]);
 
   const filteredUnplanned = useMemo(() => {
     return unplannedTransactions.filter((t) => {
+      if (filterType === 'transfer' && !isTransferTransaction(t)) return false;
+      if (filterType === 'pemasukan' && !isOperationalIncome(t)) return false;
+      if (filterType === 'pengeluaran' && !isOperationalExpense(t)) return false;
+
       // Pencarian contain pada deskripsi transaksi:
       if (cleanSearch) {
         const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
@@ -233,7 +250,7 @@ export const ReconciliationTable = ({
       if (activeTab === 'pengeluaran' && !isOperationalExpense(t)) return false;
       return true;
     });
-  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab]);
+  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate, activeTab, filterType]);
 
   // Otomatis expand forecast yang memiliki transaksi/rencana yang cocok dengan pencarian deskripsi atau saat tab duplikat aktif
   useEffect(() => {
@@ -660,7 +677,8 @@ export const ReconciliationTable = ({
     }
 
     const rangeStr = filterStartDate && filterEndDate ? `${filterStartDate}_sd_${filterEndDate}` : 'Semua_Periode';
-    downloadExcel(exportRows, `Laporan_Rekonsiliasi_Kas_${rangeStr}.xlsx`, 'Rekonsiliasi Kas');
+    const typeStr = filterType !== 'all' ? `_${filterType}` : '';
+    downloadExcel(exportRows, `Laporan_Rekonsiliasi_Kas_${rangeStr}${typeStr}.xlsx`, 'Rekonsiliasi Kas');
   };
 
   // Edit Handlers
@@ -777,18 +795,40 @@ export const ReconciliationTable = ({
             </button>
 
             {/* Filter Bank/Kas */}
-            <select
-              value={filterBankId}
-              onChange={(e) => setFilterBankId(e.target.value)}
-              className="px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-xl cursor-pointer"
-            >
-              <option value="all">Semua Rekening & Kas</option>
-              {banks.map(b => (
-                <option key={b.id} value={b.id}>
-                  {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs shadow-xs">
+              <Building className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <span className="text-[10px] font-bold uppercase text-slate-500">Akun:</span>
+              <select
+                value={filterBankId}
+                onChange={(e) => setFilterBankId(e.target.value)}
+                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer text-xs"
+                title="Filter Akun Rekening Bank atau Kas"
+              >
+                <option value="all">Semua Rekening & Kas</option>
+                {banks.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {isKasAccount(b) ? '💵 [Kas]' : '🏦 [Bank]'} {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filter Jenis Tipe Transaksi / Mutasi */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-xl text-xs shadow-xs">
+              <Filter className="w-3.5 h-3.5 text-corporate-600 shrink-0" />
+              <span className="text-[10px] font-bold uppercase text-slate-500">Tipe:</span>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer text-xs"
+                title="Filter Berdasarkan Jenis Tipe Mutasi"
+              >
+                <option value="all">Semua Tipe</option>
+                <option value="pemasukan">🟢 Pemasukan</option>
+                <option value="pengeluaran">🔴 Pengeluaran</option>
+                <option value="transfer">🔄 Transfer Antar Bank</option>
+              </select>
+            </div>
 
             {/* Filter Tab: Semua, Forecast, Transaksi Non Forecast */}
             <div className="flex items-center p-1 bg-slate-200/70 rounded-xl text-xs font-semibold text-slate-600">
