@@ -180,9 +180,26 @@ export const ReconciliationTable = ({
 
   const availableNonForecastCount = useMemo(() => {
     return unplannedTransactions.filter((t) => {
-      if (filterType === 'transfer' && !isTransferTransaction(t)) return false;
+      if (isTransferTransaction(t)) return false; // Khusus non-forecast operasional
+      if (filterType === 'transfer') return false;
       if (filterType === 'pemasukan' && !isOperationalIncome(t)) return false;
       if (filterType === 'pengeluaran' && !isOperationalExpense(t)) return false;
+
+      if (cleanSearch) {
+        const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
+        if (!matchesSearch) return false;
+      }
+      if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
+      if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
+      if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
+      return true;
+    }).length;
+  }, [unplannedTransactions, cleanSearch, filterBankId, filterStartDate, filterEndDate, filterType]);
+
+  const availableTransferCount = useMemo(() => {
+    return unplannedTransactions.filter((t) => {
+      if (!isTransferTransaction(t)) return false; // Khusus mutasi transfer antar bank/kas
+      if (filterType === 'pemasukan' || filterType === 'pengeluaran') return false;
 
       if (cleanSearch) {
         const matchesSearch = String(t.deskripsi || '').toLowerCase().includes(cleanSearch);
@@ -230,7 +247,8 @@ export const ReconciliationTable = ({
 
   const filteredUnplanned = useMemo(() => {
     return unplannedTransactions.filter((t) => {
-      if (filterType === 'transfer' && !isTransferTransaction(t)) return false;
+      const isTrf = isTransferTransaction(t);
+      if (filterType === 'transfer' && !isTrf) return false;
       if (filterType === 'pemasukan' && !isOperationalIncome(t)) return false;
       if (filterType === 'pengeluaran' && !isOperationalExpense(t)) return false;
 
@@ -244,8 +262,8 @@ export const ReconciliationTable = ({
       if (filterEndDate && t.tanggal && t.tanggal > filterEndDate) return false;
       if (activeTab === 'forecast') return false;
       if (activeTab === 'duplikat' && !t.isDuplicate) return false;
-      if (activeTab === 'transfer') return isTransferTransaction(t);
-      if (activeTab === 'anomali' && isTransferTransaction(t)) return false;
+      if (activeTab === 'transfer' && !isTrf) return false;
+      if (activeTab === 'non_forecast' && isTrf) return false;
       if (activeTab === 'pemasukan' && !isOperationalIncome(t)) return false;
       if (activeTab === 'pengeluaran' && !isOperationalExpense(t)) return false;
       return true;
@@ -313,21 +331,33 @@ export const ReconciliationTable = ({
     });
   }, [filteredUnplanned, sortDateOrder]);
 
+  // Pisahkan transaksi operasional murni (Non Forecast) vs mutasi pemindahan dana antar akun (Transfer)
+  const operationalUnplanned = useMemo(() => {
+    return sortedUnplanned.filter(t => !isTransferTransaction(t));
+  }, [sortedUnplanned]);
+
+  const transferUnplanned = useMemo(() => {
+    return sortedUnplanned.filter(t => isTransferTransaction(t));
+  }, [sortedUnplanned]);
+
   // Calculate all selectable IDs currently visible
   const allVisibleIds = useMemo(() => {
     const ids = [];
-    if (activeTab !== 'anomali' && activeTab !== 'non_forecast') {
+    if (activeTab === 'all' || activeTab === 'forecast' || activeTab === 'duplikat') {
       sortedForecasts.forEach(plan => {
         ids.push(plan.id);
         const subTx = planTransactionsMap[plan.id] || [];
         subTx.forEach(tx => ids.push(tx.id));
       });
     }
-    if (activeTab !== 'forecast') {
-      sortedUnplanned.forEach(tx => ids.push(tx.id));
+    if (activeTab === 'all' || activeTab === 'non_forecast' || activeTab === 'duplikat') {
+      operationalUnplanned.forEach(tx => ids.push(tx.id));
+    }
+    if (activeTab === 'all' || activeTab === 'transfer' || activeTab === 'duplikat') {
+      transferUnplanned.forEach(tx => ids.push(tx.id));
     }
     return ids;
-  }, [sortedForecasts, sortedUnplanned, planTransactionsMap, activeTab]);
+  }, [sortedForecasts, operationalUnplanned, transferUnplanned, planTransactionsMap, activeTab]);
 
   const allRowsSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => selectedRowIds.includes(id));
   const someRowsSelected = allVisibleIds.some(id => selectedRowIds.includes(id));
@@ -580,19 +610,22 @@ export const ReconciliationTable = ({
       });
     });
 
-    // 2. Check selected unplanned / anomaly
+    // 2. Check selected unplanned / anomaly / transfer
     sortedUnplanned.forEach(tx => {
       if (selectedRowIds.includes(tx.id)) {
+        const isTrf = isTransferTransaction(tx);
+        const trfDir = isTrf ? getTransferDirection(tx) : null;
+        const isPositive = isTrf ? trfDir === 'in' : tx.tipe === 'pemasukan';
         exportRows.push({
           "No": no++,
-          "Kategori": "Transaksi Diluar Forecast (Anomali)",
+          "Kategori": isTrf ? "Mutasi Transfer Antar Akun (Internal)" : "Transaksi Diluar Forecast (Anomali)",
           "Deskripsi": tx.deskripsi,
-          "Jenis Mutasi": isTransferTransaction(tx) ? (getTransferDirection(tx) === 'out' ? 'Transfer Keluar (Internal)' : 'Transfer Masuk (Internal)') : (tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'),
+          "Jenis Mutasi": isTrf ? (trfDir === 'out' ? 'Transfer Keluar (Internal)' : 'Transfer Masuk (Internal)') : (tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'),
           "Akun Bank / Kas": getBankName(tx.bankId),
           "Tanggal / Periode": tx.tanggal ? formatDateIndo(tx.tanggal) : "-",
           "Target Nominal (Rp)": 0,
           "Realisasi Aktual (Rp)": tx.nominal,
-          "Selisih (Rp)": -tx.nominal,
+          "Selisih (Rp)": isPositive ? tx.nominal : -tx.nominal,
           "Status Duplikat": tx.isDuplicate ? "Duplikat" : "Normal"
         });
       }
@@ -686,18 +719,21 @@ export const ReconciliationTable = ({
       });
     });
 
-    // 2. Export transaksi diluar forecast (anomali)
+    // 2. Export transaksi non-forecast & transfer antar akun
     sortedUnplanned.forEach(tx => {
+      const isTrf = isTransferTransaction(tx);
+      const trfDir = isTrf ? getTransferDirection(tx) : null;
+      const isPositive = isTrf ? trfDir === 'in' : tx.tipe === 'pemasukan';
       exportRows.push({
         "No": no++,
-        "Kategori": "Transaksi Diluar Forecast (Anomali)",
+        "Kategori": isTrf ? "Mutasi Transfer Antar Akun (Internal)" : "Transaksi Diluar Forecast (Anomali)",
         "Deskripsi": tx.deskripsi,
-        "Jenis Mutasi": tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran',
+        "Jenis Mutasi": isTrf ? (trfDir === 'out' ? 'Transfer Keluar (Internal)' : 'Transfer Masuk (Internal)') : (tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'),
         "Akun Bank / Kas": getBankName(tx.bankId),
         "Tanggal / Periode": tx.tanggal ? formatDateIndo(tx.tanggal) : "-",
         "Target Nominal (Rp)": 0,
         "Realisasi Aktual (Rp)": tx.nominal,
-        "Selisih (Rp)": -tx.nominal,
+        "Selisih (Rp)": isPositive ? tx.nominal : -tx.nominal,
         "Status Duplikat": tx.isDuplicate ? "Duplikat" : "Normal"
       });
     });
@@ -897,6 +933,20 @@ export const ReconciliationTable = ({
                   </span>
                 )}
               </button>
+              <button 
+                type="button"
+                onClick={() => setActiveTab('transfer')} 
+                className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all ${activeTab === 'transfer' ? 'bg-indigo-600 text-white shadow-sm font-bold' : 'text-indigo-700 hover:bg-indigo-100/60'}`}
+                title="Tampilkan khusus mutasi transfer / pindah buku antar bank & kas"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Transfer Antar Bank</span>
+                {availableTransferCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'transfer' ? 'bg-indigo-700 text-white' : 'bg-indigo-200 text-indigo-800'}`}>
+                    {availableTransferCount}
+                  </span>
+                )}
+              </button>
               {duplicateTxCount > 0 && (
                 <button 
                   type="button"
@@ -1017,8 +1067,10 @@ export const ReconciliationTable = ({
           </thead>
           <tbody className="divide-y divide-slate-200">
             {/* Empty State jika belum ada mutasi transaksi yang diinput */}
-            {((activeTab !== 'anomali' && activeTab !== 'non_forecast' && sortedForecasts.length === 0 && sortedUnplanned.length === 0) || 
-              ((activeTab === 'anomali' || activeTab === 'non_forecast') && sortedUnplanned.length === 0) ||
+            {((activeTab === 'all' && sortedForecasts.length === 0 && operationalUnplanned.length === 0 && transferUnplanned.length === 0) || 
+              ((activeTab === 'anomali' || activeTab === 'non_forecast') && operationalUnplanned.length === 0) ||
+              (activeTab === 'transfer' && transferUnplanned.length === 0) ||
+              (activeTab === 'duplikat' && sortedForecasts.length === 0 && operationalUnplanned.length === 0 && transferUnplanned.length === 0) ||
               (activeTab === 'forecast' && sortedForecasts.length === 0)) && (
               <tr>
                 <td colSpan="7" className="py-14 px-4 text-center text-slate-400">
@@ -1030,7 +1082,11 @@ export const ReconciliationTable = ({
                     {activeTab === 'forecast' 
                       ? 'Tidak ada data rencana forecast atau mutasi terkait yang sesuai dengan filter saat ini.' 
                       : activeTab === 'non_forecast'
-                      ? 'Tidak ada data transaksi non forecast yang sesuai dengan filter saat ini.'
+                      ? 'Tidak ada data transaksi non forecast (di luar anggaran) yang sesuai dengan filter saat ini.'
+                      : activeTab === 'transfer'
+                      ? 'Tidak ada mutasi transfer atau pemindahan dana antar bank / kas yang sesuai dengan filter saat ini.'
+                      : activeTab === 'duplikat'
+                      ? 'Tidak ada transaksi yang terdeteksi sebagai duplikat.'
                       : 'Tabel rekonsiliasi hanya akan terisi secara otomatis jika data mutasi kas telah diinput (melalui formulir transaksi aktual atau import mutasi).'}
                   </p>
                 </td>
@@ -1038,7 +1094,7 @@ export const ReconciliationTable = ({
             )}
 
             {/* Render Rencana Forecast yang Memiliki Mutasi */}
-            {activeTab !== 'anomali' && activeTab !== 'non_forecast' && sortedForecasts.map((plan) => {
+            {activeTab !== 'anomali' && activeTab !== 'non_forecast' && activeTab !== 'transfer' && sortedForecasts.map((plan) => {
               const rawSub = (planTransactionsMap[plan.id] || []).filter(t => {
                 if (filterBankId !== 'all' && t.bankId !== filterBankId) return false;
                 if (filterStartDate && t.tanggal && t.tanggal < filterStartDate) return false;
@@ -1223,15 +1279,19 @@ export const ReconciliationTable = ({
               );
             })}
 
-            {/* Transaksi Diluar Forecast (Non Forecast) */}
-            {activeTab !== 'forecast' && filteredUnplanned.length > 0 && (
+            {/* Transaksi Diluar Forecast (Non Forecast Operasional Murni) */}
+            {activeTab !== 'forecast' && activeTab !== 'transfer' && operationalUnplanned.length > 0 && (
               <>
                 <tr className="bg-rose-100/80 border-t-2 border-rose-300">
-                  <td colSpan="7" className="py-2 px-4 font-bold text-rose-950 text-xs">
+                  <td colSpan="7" className="py-2.5 px-4 font-bold text-rose-950 text-xs">
                     <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span>
-                        <AlertTriangle className="w-4 h-4 inline mr-2 text-rose-600" /> TRANSAKSI NON FORECAST
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-600" />
+                        <span className="tracking-wide">TRANSAKSI NON FORECAST (OPERASIONAL DI LUAR ANGGARAN)</span>
+                        <span className="text-[10px] font-semibold text-rose-800 bg-rose-200 px-2 py-0.5 rounded-full">
+                          Anomali Belum Dianggarkan
+                        </span>
+                      </div>
                       <button
                         type="button"
                         onClick={() => setSortDateOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
@@ -1244,8 +1304,9 @@ export const ReconciliationTable = ({
                     </div>
                   </td>
                 </tr>
-                {sortedUnplanned.map((tx) => {
+                {operationalUnplanned.map((tx) => {
                   const isUnplannedSelected = selectedRowIds.includes(tx.id);
+                  const isIncome = tx.tipe === 'pemasukan';
                   return (
                     <tr 
                       key={tx.id} 
@@ -1281,28 +1342,21 @@ export const ReconciliationTable = ({
                         </div>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {isTransferTransaction(tx) ? (
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
-                            getTransferDirection(tx) === 'out'
-                              ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
-                              : 'bg-cyan-100 text-cyan-900 border-cyan-300'
-                          }`}>
-                            <ArrowLeftRight className="w-3 h-3" />
-                            {getTransferDirection(tx) === 'out' ? 'Transfer Keluar' : 'Transfer Masuk'}
-                          </span>
-                        ) : (
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${
-                            tx.tipe === 'pemasukan' 
-                              ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
-                              : 'bg-rose-200/90 text-rose-900 border-rose-300'
-                          }`}>
-                            {tx.tipe === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran'}
-                          </span>
-                        )}
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${
+                          isIncome 
+                            ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
+                            : 'bg-rose-200/90 text-rose-900 border-rose-300'
+                        }`}>
+                          {isIncome ? 'Pemasukan' : 'Pengeluaran'}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-right font-mono-num font-semibold text-rose-400">—</td>
-                      <td className="py-3 px-4 text-right font-mono-num font-extrabold text-rose-950">{formatRupiah(tx.nominal)}</td>
-                      <td className="py-3 px-4 text-right font-mono-num font-bold">-{formatRupiah(tx.nominal)}</td>
+                      <td className={`py-3 px-4 text-right font-mono-num font-extrabold ${isIncome ? 'text-emerald-800' : 'text-rose-950'}`}>
+                        {isIncome ? `+${formatRupiah(tx.nominal)}` : formatRupiah(tx.nominal)}
+                      </td>
+                      <td className={`py-3 px-4 text-right font-mono-num font-bold ${isIncome ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {isIncome ? `+${formatRupiah(tx.nominal)}` : `-${formatRupiah(tx.nominal)}`}
+                      </td>
                       <td className="py-3 px-4 text-center">
                         {isViewer ? (
                           <span className="inline-flex items-center gap-1 text-[11px] text-rose-400 bg-rose-100 px-2 py-0.5 rounded-full font-medium">
@@ -1321,6 +1375,135 @@ export const ReconciliationTable = ({
                               onClick={(e) => handleTriggerDeleteTransaction(e, tx, true)}
                               className="p-1.5 text-rose-400 hover:text-rose-700 rounded-lg hover:bg-rose-200 transition-colors cursor-pointer"
                               title="Hapus Transaksi Non Forecast"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Mutasi Pemindahan Dana Antar Akun (Transfer Internal Bank & Kas) */}
+            {activeTab !== 'forecast' && activeTab !== 'non_forecast' && transferUnplanned.length > 0 && (
+              <>
+                <tr className="bg-indigo-100/90 border-t-2 border-indigo-300">
+                  <td colSpan="7" className="py-2.5 px-4 font-bold text-indigo-950 text-xs">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <ArrowLeftRight className="w-4 h-4 text-indigo-600" />
+                        <span className="tracking-wide">MUTASI PEMINDAHAN DANA ANTAR AKUN (TRANSFER INTERNAL BANK & KAS)</span>
+                        <span className="text-[10px] font-semibold text-indigo-800 bg-indigo-200 px-2 py-0.5 rounded-full">
+                          Net Zero di Tingkat Konsolidasi Kas
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSortDateOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/90 hover:bg-white text-indigo-950 border border-indigo-300 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                        title={`Urutkan tanggal transfer (Saat ini: ${sortDateOrder === 'desc' ? 'Terbaru ke Terlama' : 'Terlama ke Terbaru'})`}
+                      >
+                        <ArrowUpDown className="w-3 h-3 text-indigo-600" />
+                        <span>Tanggal: {sortDateOrder === 'desc' ? '↓ Terbaru' : '↑ Terlama'}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {transferUnplanned.map((tx) => {
+                  const isTrfSelected = selectedRowIds.includes(tx.id);
+                  const dir = getTransferDirection(tx);
+                  const isTrfIn = dir === 'in';
+
+                  return (
+                    <tr
+                      key={tx.id}
+                      className={`border-l-4 transition-colors ${
+                        isTrfIn
+                          ? `border-l-emerald-500 text-emerald-950 ${isTrfSelected ? 'bg-emerald-200/80' : 'bg-emerald-50/70 hover:bg-emerald-100/60'}`
+                          : `border-l-indigo-500 text-indigo-950 ${isTrfSelected ? 'bg-indigo-200/80' : 'bg-indigo-50/60 hover:bg-indigo-100/60'}`
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <td className="py-3 px-3 text-center w-10">
+                        <input
+                          type="checkbox"
+                          checked={isTrfSelected}
+                          onChange={(e) => handleToggleSelectRow(tx.id, e)}
+                          disabled={isViewer}
+                          className={`w-4 h-4 rounded cursor-pointer disabled:opacity-40 ${
+                            isTrfIn ? 'border-emerald-300 text-emerald-700 focus:ring-emerald-500' : 'border-indigo-300 text-indigo-700 focus:ring-indigo-500'
+                          }`}
+                        />
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="font-extrabold flex items-center gap-2 flex-wrap">
+                          <span>{tx.deskripsi}</span>
+                          {tx.transferPairId && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] bg-indigo-100 text-indigo-800 border border-indigo-200 font-bold px-1.5 py-0.5 rounded shadow-2xs"
+                              title="Terikat otomatis dengan mutasi pasangannya di rekening lawan"
+                            >
+                              <ArrowLeftRight className="w-3 h-3 text-indigo-600" /> Terikat 2 Arah
+                            </span>
+                          )}
+                          {tx.isDuplicate && (
+                            <span 
+                              className="inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 border border-amber-300 font-bold px-1.5 py-0.5 rounded shadow-2xs"
+                              title={tx.duplicateReason || 'Terdeteksi kesamaan tanggal, rekening, deskripsi, dan nominal dengan data yang ada'}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-amber-600" /> Duplikat
+                            </span>
+                          )}
+                        </div>
+                        <div className={`flex items-center gap-1.5 text-[11px] mt-1 ${isTrfIn ? 'text-emerald-700' : 'text-indigo-700'}`}>
+                          <Building className="w-3 h-3" /> {getBankName(tx.bankId)}
+                          <span className="opacity-50">•</span>
+                          <span>{formatDateIndo(tx.tanggal)}</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4 text-center">
+                        {isTrfIn ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs">
+                            <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" /> Transfer Masuk
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border bg-indigo-100 text-indigo-900 border-indigo-300 shadow-2xs">
+                            <ArrowUpRight className="w-3.5 h-3.5 text-indigo-600" /> Transfer Keluar
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-4 text-right font-mono-num font-semibold text-slate-400">—</td>
+                      <td className={`py-3 px-4 text-right font-mono-num font-extrabold ${isTrfIn ? 'text-emerald-800' : 'text-indigo-950'}`}>
+                        {isTrfIn ? `+${formatRupiah(tx.nominal)}` : formatRupiah(tx.nominal)}
+                      </td>
+                      <td className={`py-3 px-4 text-right font-mono-num font-bold ${isTrfIn ? 'text-emerald-700' : 'text-indigo-700'}`}>
+                        {isTrfIn ? `+${formatRupiah(tx.nominal)}` : `-${formatRupiah(tx.nominal)}`}
+                      </td>
+
+                      <td className="py-3 px-4 text-center">
+                        {isViewer ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
+                            <Lock className="w-3 h-3" /> Read-Only
+                          </span>
+                        ) : (
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={(e) => handleEditTransaction(e, tx)}
+                              className="p-1.5 text-slate-400 hover:text-blue-700 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
+                              title="Edit Mutasi Transfer"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => handleTriggerDeleteTransaction(e, tx, true)}
+                              className="p-1.5 text-slate-400 hover:text-rose-700 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer"
+                              title="Hapus Mutasi Transfer (Otomatis hapus pasangan di rekening lawan)"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
