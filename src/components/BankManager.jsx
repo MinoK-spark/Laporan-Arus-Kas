@@ -1534,6 +1534,7 @@ export const BankManager = ({
         transactions={transactions}
         companyName={companyName}
         currentUser={currentUser}
+        initialMonth={filterPeriode}
       />
 
       {/* Modal Validasi Hapus Bank/Kas */}

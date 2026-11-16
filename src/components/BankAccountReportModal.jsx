@@ -27,12 +27,13 @@ export function BankAccountReportModal({
   bank,
   transactions = [],
   companyName = 'PT GRAHA PRIMA ENERGI',
-  currentUser
+  currentUser,
+  initialMonth = 'all'
 }) {
   if (!isOpen || !bank) return null;
 
   const [activeTab, setActiveTab] = useState('monthly'); // 'monthly' | 'ledger'
-  const [filterMonth, setFilterMonth] = useState('all'); // for ledger filtering
+  const [filterMonth, setFilterMonth] = useState(() => (initialMonth && initialMonth !== 'all' ? initialMonth : 'all'));
 
   const currentDate = new Date().toISOString().split('T')[0];
   const currentTime = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -44,8 +45,31 @@ export function BankAccountReportModal({
   const bankTransactions = useMemo(() => {
     return (transactions || [])
       .filter(t => t.bankId === bank.id)
-      .sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || ''));
+      .sort((a, b) => {
+        const dateA = a.tanggal || '';
+        const dateB = b.tanggal || '';
+        const dateCmp = dateA.localeCompare(dateB);
+        if (dateCmp !== 0) return dateCmp;
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeA - timeB;
+      });
   }, [transactions, bank.id]);
+
+  // Helper untuk menentukan apakah mutasi menambah (inflow) atau mengurangi (outflow) rekening ini
+  const isTxInflow = (tx) => {
+    if (isTransferTransaction(tx)) {
+      return getTransferDirection(tx) === 'in';
+    }
+    return tx.tipe === 'pemasukan';
+  };
+
+  const isTxOutflow = (tx) => {
+    if (isTransferTransaction(tx)) {
+      return getTransferDirection(tx) === 'out';
+    }
+    return tx.tipe === 'pengeluaran';
+  };
 
   // Identify all unique months
   const availableMonths = useMemo(() => {
@@ -86,10 +110,10 @@ export function BankAccountReportModal({
     for (const m of availableMonths) {
       const monthTx = bankTransactions.filter(t => t.tanggal && t.tanggal.startsWith(m));
       const masuk = monthTx
-        .filter(t => isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in'))
+        .filter(t => isTxInflow(t))
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       const keluar = monthTx
-        .filter(t => isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out'))
+        .filter(t => isTxOutflow(t))
         .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       const opMasuk = monthTx.filter(t => isOperationalIncome(t)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
       const opKeluar = monthTx.filter(t => isOperationalExpense(t)).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
@@ -113,8 +137,8 @@ export function BankAccountReportModal({
         net,
         saldoAkhir: saldoAkhirBulan,
         txCount: monthTx.length,
-        txMasukCount: monthTx.filter(t => isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in')).length,
-        txKeluarCount: monthTx.filter(t => isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out')).length
+        txMasukCount: monthTx.filter(t => isTxInflow(t)).length,
+        txKeluarCount: monthTx.filter(t => isTxOutflow(t)).length
       });
 
       runningSaldo = saldoAkhirBulan;
@@ -123,29 +147,37 @@ export function BankAccountReportModal({
     return history;
   }, [availableMonths, bankTransactions, masterSaldoAwal]);
 
-  // Overall totals for this bank
+  // Overall totals for this bank (memperhitungkan operasional & transfer yang menambah/mengurangi rekening)
   const totalAllMasuk = useMemo(() => {
-    return bankTransactions.filter(t => t.tipe === 'pemasukan').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+    return bankTransactions
+      .filter(t => isTxInflow(t))
+      .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
   }, [bankTransactions]);
 
   const totalAllKeluar = useMemo(() => {
-    return bankTransactions.filter(t => t.tipe === 'pengeluaran').reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+    return bankTransactions
+      .filter(t => isTxOutflow(t))
+      .reduce((s, t) => s + (Number(t.nominal) || 0), 0);
   }, [bankTransactions]);
 
   const currentEndingBalance = masterSaldoAwal + totalAllMasuk - totalAllKeluar;
 
-  // Ledger with running balance
+  // Ledger with running balance (arus kas berjalan per transaksi)
   const ledgerWithBalances = useMemo(() => {
     let running = masterSaldoAwal;
     return bankTransactions.map(tx => {
       const nom = Number(tx.nominal) || 0;
-      if (tx.tipe === 'pemasukan') {
+      const isIn = isTxInflow(tx);
+      const isOut = isTxOutflow(tx);
+      if (isIn) {
         running += nom;
-      } else {
+      } else if (isOut) {
         running -= nom;
       }
       return {
         ...tx,
+        isInflow: isIn,
+        isOutflow: isOut,
         balanceAfter: running
       };
     });
@@ -162,18 +194,54 @@ export function BankAccountReportModal({
 
   // Export Excel
   const handleExportExcel = () => {
-    // Sheet: Rekap Bulanan
+    if (activeTab === 'ledger') {
+      const ledgerRows = displayedLedger.map((tx, idx) => {
+        const isTrf = isTransferTransaction(tx);
+        const isIn = tx.isInflow ?? isTxInflow(tx);
+        const isOut = tx.isOutflow ?? isTxOutflow(tx);
+        return {
+          'No': idx + 1,
+          'Tanggal': tx.tanggal ? formatDateIndo(tx.tanggal) : '-',
+          'Deskripsi': tx.deskripsi || '-',
+          'Tipe Mutasi': isTrf ? (isIn ? 'Transfer Masuk' : 'Transfer Keluar') : (isIn ? 'Pemasukan' : 'Pengeluaran'),
+          'Pemasukan (Rp)': isIn ? Number(tx.nominal) || 0 : 0,
+          'Pengeluaran (Rp)': isOut ? Number(tx.nominal) || 0 : 0,
+          'Saldo Berjalan (Rp)': Number(tx.balanceAfter) || 0
+        };
+      });
+
+      downloadExcel(
+        ledgerRows,
+        `Buku_Mutasi_${bank.name.replace(/[^a-zA-Z0-9]/g, '_')}_${filterMonth}_${currentDate}.xlsx`,
+        'Buku Mutasi Rekening'
+      );
+      return;
+    }
+
+    // Default: Rekap Bulanan
     const summaryRows = monthlyHistory.map((item, idx) => ({
       'No': idx + 1,
       'Periode Bulan': item.bulanLabel,
       'Kode Bulan': item.bulan,
-      'Saldo Awal': item.saldoAwal,
-      'Total Pemasukan': item.masuk,
-      'Total Pengeluaran': item.keluar,
-      'Net Mutasi': item.net,
-      'Saldo Akhir': item.saldoAkhir,
+      'Saldo Awal (Rp)': item.saldoAwal,
+      'Total Pemasukan (Rp)': item.masuk,
+      'Total Pengeluaran (Rp)': item.keluar,
+      'Net Mutasi (Rp)': item.net,
+      'Saldo Akhir (Rp)': item.saldoAkhir,
       'Jumlah Transaksi': item.txCount
     }));
+
+    summaryRows.push({
+      'No': '',
+      'Periode Bulan': 'TOTAL AKUMULATIF',
+      'Kode Bulan': '',
+      'Saldo Awal (Rp)': masterSaldoAwal,
+      'Total Pemasukan (Rp)': totalAllMasuk,
+      'Total Pengeluaran (Rp)': totalAllKeluar,
+      'Net Mutasi (Rp)': totalAllMasuk - totalAllKeluar,
+      'Saldo Akhir (Rp)': currentEndingBalance,
+      'Jumlah Transaksi': bankTransactions.length
+    });
 
     downloadExcel(
       summaryRows, 
@@ -334,7 +402,7 @@ export function BankAccountReportModal({
                     {formatRupiah(totalAllMasuk)}
                   </p>
                   <p className="text-[10px] text-emerald-700 font-medium mt-0.5 truncate">
-                    {bankTransactions.filter(t => t.tipe === 'pemasukan').length} Transaksi Masuk
+                    {bankTransactions.filter(t => isTxInflow(t)).length} Transaksi Masuk
                   </p>
                 </div>
 
@@ -344,7 +412,7 @@ export function BankAccountReportModal({
                     {formatRupiah(totalAllKeluar)}
                   </p>
                   <p className="text-[10px] text-rose-700 font-medium mt-0.5 truncate">
-                    {bankTransactions.filter(t => t.tipe === 'pengeluaran').length} Transaksi Keluar
+                    {bankTransactions.filter(t => isTxOutflow(t)).length} Transaksi Keluar
                   </p>
                 </div>
 
@@ -468,35 +536,61 @@ export function BankAccountReportModal({
                         </td>
                       </tr>
                     ) : (
-                      displayedLedger.map((tx, idx) => (
-                        <tr key={tx.id || idx} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 text-center text-slate-500">{idx + 1}</td>
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 whitespace-nowrap text-slate-700 font-semibold">
-                            {formatDateIndo(tx.tanggal)}
-                          </td>
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 font-medium text-slate-900 break-words">
-                            {tx.deskripsi}
-                          </td>
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 text-center whitespace-nowrap">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
-                              tx.tipe === 'pemasukan' 
-                                ? 'bg-emerald-100 text-emerald-800' 
-                                : 'bg-rose-100 text-rose-800'
+                      displayedLedger.map((tx, idx) => {
+                        const isTrf = isTransferTransaction(tx);
+                        const isIn = tx.isInflow ?? isTxInflow(tx);
+                        const isOut = tx.isOutflow ?? isTxOutflow(tx);
+
+                        return (
+                          <tr key={tx.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-1.5 px-3 print:py-1 print:px-2 text-center text-slate-500">{idx + 1}</td>
+                            <td className="py-1.5 px-3 print:py-1 print:px-2 whitespace-nowrap text-slate-700 font-semibold">
+                              {formatDateIndo(tx.tanggal)}
+                            </td>
+                            <td className="py-1.5 px-3 print:py-1 print:px-2 font-medium text-slate-900 break-words">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span>{tx.deskripsi}</span>
+                                {isTrf && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                    Transfer
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-1.5 px-3 print:py-1 print:px-2 text-center whitespace-nowrap">
+                              {isTrf ? (
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${
+                                  isIn 
+                                    ? 'bg-cyan-50 text-cyan-800 border-cyan-200' 
+                                    : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                }`}>
+                                  {isIn ? <ArrowDownLeft className="w-2.5 h-2.5 text-cyan-600" /> : <ArrowUpRight className="w-2.5 h-2.5 text-indigo-600" />}
+                                  {isIn ? 'Trf Masuk' : 'Trf Keluar'}
+                                </span>
+                              ) : (
+                                <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase border ${
+                                  isIn 
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                    : 'bg-rose-100 text-rose-800 border border-rose-200'
+                                }`}>
+                                  {isIn ? 'Masuk' : 'Keluar'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-1.5 px-3 print:py-1 print:px-2 text-right font-mono-num text-emerald-700 font-bold">
+                              {isIn ? formatRupiah(tx.nominal) : '-'}
+                            </td>
+                            <td className="py-1.5 px-3 print:py-1 print:px-2 text-right font-mono-num text-rose-700 font-bold">
+                              {isOut ? formatRupiah(tx.nominal) : '-'}
+                            </td>
+                            <td className={`py-1.5 px-3 print:py-1 print:px-2 text-right font-mono-num font-black bg-slate-50/70 ${
+                              tx.balanceAfter >= 0 ? 'text-slate-950' : 'text-rose-700'
                             }`}>
-                              {tx.tipe === 'pemasukan' ? 'Masuk' : 'Keluar'}
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 text-right font-mono-num text-emerald-700 font-bold">
-                            {tx.tipe === 'pemasukan' ? formatRupiah(tx.nominal) : '-'}
-                          </td>
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 text-right font-mono-num text-rose-700 font-bold">
-                            {tx.tipe === 'pengeluaran' ? formatRupiah(tx.nominal) : '-'}
-                          </td>
-                          <td className="py-1.5 px-3 print:py-1 print:px-2 text-right font-mono-num font-black text-slate-950 bg-slate-50/70">
-                            {formatRupiah(tx.balanceAfter)}
-                          </td>
-                        </tr>
-                      ))
+                              {formatRupiah(tx.balanceAfter)}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
