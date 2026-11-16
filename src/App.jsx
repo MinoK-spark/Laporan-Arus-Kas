@@ -360,7 +360,10 @@ export function App() {
       // HANYA mutasi operasional (tidak termasuk transfer internal antar bank)
       const masuk = transactions.filter(t => isOperationalIncome(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
       const keluar = transactions.filter(t => isOperationalExpense(t)).reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-      const totalTransfer = transactions.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const trfOut = transactions.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const trfIn = transactions.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'in').reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+      const transferDiff = trfOut - trfIn;
+      const isTransferBalanced = Math.abs(transferDiff) < 0.01;
       const transferCount = transactions.filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out').length;
       const saldoAkhir = totalMasterSaldoAwal + masuk - keluar;
       return {
@@ -368,7 +371,10 @@ export function App() {
         totalSaldoAwal: totalMasterSaldoAwal,
         totalMasuk: masuk,
         totalKeluar: keluar,
-        totalTransfer,
+        totalTransfer: trfOut,
+        totalTransferMasuk: trfIn,
+        transferDiff,
+        isTransferBalanced,
         transferCount,
         saldoAkhirKeseluruhan: saldoAkhir
       };
@@ -392,9 +398,14 @@ export function App() {
     const currentOut = transactions
       .filter(t => isOperationalExpense(t) && t.tanggal && t.tanggal.startsWith(selectedMonth))
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
-    const currentTransfer = transactions
+    const currentTransferOut = transactions
       .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out' && t.tanggal && t.tanggal.startsWith(selectedMonth))
       .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+    const currentTransferIn = transactions
+      .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'in' && t.tanggal && t.tanggal.startsWith(selectedMonth))
+      .reduce((sum, t) => sum + (Number(t.nominal) || 0), 0);
+    const currentTransferDiff = currentTransferOut - currentTransferIn;
+    const isCurrentTransferBalanced = Math.abs(currentTransferDiff) < 0.01;
     const currentTransferCount = transactions
       .filter(t => isTransferTransaction(t) && getTransferDirection(t) === 'out' && t.tanggal && t.tanggal.startsWith(selectedMonth))
       .length;
@@ -407,7 +418,10 @@ export function App() {
       totalSaldoAwal: saldoAwalBulanIni,
       totalMasuk: currentIn,
       totalKeluar: currentOut,
-      totalTransfer: currentTransfer,
+      totalTransfer: currentTransferOut,
+      totalTransferMasuk: currentTransferIn,
+      transferDiff: currentTransferDiff,
+      isTransferBalanced: isCurrentTransferBalanced,
       transferCount: currentTransferCount,
       saldoAkhirKeseluruhan: saldoAkhirBulanIni
     };
@@ -661,19 +675,90 @@ export function App() {
 
   const handleDeleteTransaction = (txId) => {
     if (currentUser?.role === 'viewer') return;
-    const updated = transactions.filter(t => t.id !== txId);
+    const targetTx = transactions.find(t => t.id === txId);
+    const idsToDelete = new Set([txId]);
+
+    // Jika transaksi adalah transfer antar akun, cari pasangannya agar kas tetap seimbang
+    if (targetTx && isTransferTransaction(targetTx)) {
+      if (targetTx.transferPairId) {
+        transactions.forEach(t => {
+          if (t.transferPairId === targetTx.transferPairId) {
+            idsToDelete.add(t.id);
+          }
+        });
+      } else {
+        // Fallback untuk legacy data tanpa transferPairId:
+        const dir = getTransferDirection(targetTx);
+        const oppositeDir = dir === 'out' ? 'in' : 'out';
+        const partner = transactions.find(t => 
+          t.id !== targetTx.id &&
+          isTransferTransaction(t) &&
+          getTransferDirection(t) === oppositeDir &&
+          t.tanggal === targetTx.tanggal &&
+          Math.abs(Number(t.nominal || 0) - Number(targetTx.nominal || 0)) < 0.01 &&
+          (
+            (dir === 'out' && (t.bankId === targetTx.targetBankId || t.sourceBankId === targetTx.bankId)) ||
+            (dir === 'in' && (t.bankId === targetTx.sourceBankId || t.targetBankId === targetTx.bankId))
+          )
+        );
+        if (partner) idsToDelete.add(partner.id);
+      }
+    }
+
+    const updated = transactions.filter(t => !idsToDelete.has(t.id));
     setTransactions(updated);
     handleCloudSave('transactions', updated);
-    showNotification('Transaksi berhasil dihapus.');
+    if (idsToDelete.size > 1) {
+      showNotification('Transaksi transfer dan pasangannya berhasil dihapus.');
+    } else {
+      showNotification('Transaksi berhasil dihapus.');
+    }
   };
 
   const handleUpdateTransaction = (txId, updatedFields) => {
     if (currentUser?.role === 'viewer') return;
     const cleanFields = sanitizeForFirestore(updatedFields);
-    const updated = transactions.map(t => t.id === txId ? sanitizeForFirestore({ ...t, ...cleanFields }) : t);
+    const targetTx = transactions.find(t => t.id === txId);
+
+    // Cari pasangan transfer jika transaksi adalah transfer antar akun
+    let partnerTx = null;
+    if (targetTx && isTransferTransaction(targetTx)) {
+      if (targetTx.transferPairId) {
+        partnerTx = transactions.find(t => t.id !== targetTx.id && t.transferPairId === targetTx.transferPairId && !t.isTransferFee);
+      } else {
+        const dir = getTransferDirection(targetTx);
+        const oppositeDir = dir === 'out' ? 'in' : 'out';
+        partnerTx = transactions.find(t => 
+          t.id !== targetTx.id &&
+          isTransferTransaction(t) &&
+          getTransferDirection(t) === oppositeDir &&
+          t.tanggal === targetTx.tanggal &&
+          Math.abs(Number(t.nominal || 0) - Number(targetTx.nominal || 0)) < 0.01
+        );
+      }
+    }
+
+    const updated = transactions.map(t => {
+      if (t.id === txId) {
+        return sanitizeForFirestore({ ...t, ...cleanFields });
+      }
+      // Sinkronkan nominal & tanggal ke transaksi pasangan transfer
+      if (partnerTx && t.id === partnerTx.id) {
+        const syncedPartner = { ...t };
+        if (cleanFields.nominal !== undefined) {
+          syncedPartner.nominal = cleanFields.nominal;
+        }
+        if (cleanFields.tanggal !== undefined) {
+          syncedPartner.tanggal = cleanFields.tanggal;
+        }
+        return sanitizeForFirestore(syncedPartner);
+      }
+      return t;
+    });
+
     setTransactions(updated);
     handleCloudSave('transactions', updated);
-    showNotification('Transaksi aktual berhasil diperbarui.');
+    showNotification(partnerTx ? 'Transaksi aktual dan pasangan transfer berhasil disinkronkan.' : 'Transaksi aktual berhasil diperbarui.');
   };
 
   const handleSetCompanyName = (newName) => {
@@ -684,10 +769,40 @@ export function App() {
   const handleDeleteTransactionsBatch = (txIds) => {
     if (currentUser?.role === 'viewer' || !txIds?.length) return;
     const idSet = new Set(txIds);
+
+    // Otomatis perluas idSet untuk mencakup pasangan transfer
+    txIds.forEach(id => {
+      const targetTx = transactions.find(t => t.id === id);
+      if (targetTx && isTransferTransaction(targetTx)) {
+        if (targetTx.transferPairId) {
+          transactions.forEach(t => {
+            if (t.transferPairId === targetTx.transferPairId) {
+              idSet.add(t.id);
+            }
+          });
+        } else {
+          const dir = getTransferDirection(targetTx);
+          const oppositeDir = dir === 'out' ? 'in' : 'out';
+          const partner = transactions.find(t => 
+            t.id !== targetTx.id &&
+            isTransferTransaction(t) &&
+            getTransferDirection(t) === oppositeDir &&
+            t.tanggal === targetTx.tanggal &&
+            Math.abs(Number(t.nominal || 0) - Number(targetTx.nominal || 0)) < 0.01 &&
+            (
+              (dir === 'out' && (t.bankId === targetTx.targetBankId || t.sourceBankId === targetTx.bankId)) ||
+              (dir === 'in' && (t.bankId === targetTx.sourceBankId || t.targetBankId === targetTx.bankId))
+            )
+          );
+          if (partner) idSet.add(partner.id);
+        }
+      }
+    });
+
     const updated = transactions.filter(t => !idSet.has(t.id));
     setTransactions(updated);
     handleCloudSave('transactions', updated);
-    showNotification(`${txIds.length} transaksi berhasil dihapus.`);
+    showNotification(`${idSet.size} transaksi (termasuk pasangan transfer) berhasil dihapus.`);
   };
 
   const handleResetData = () => {
@@ -834,6 +949,9 @@ export function App() {
                 masterForecastMasuk={masterForecastMasuk}
                 masterForecastKeluar={masterForecastKeluar}
                 totalTransfer={dashboardMetrics.totalTransfer}
+                totalTransferMasuk={dashboardMetrics.totalTransferMasuk}
+                transferDiff={dashboardMetrics.transferDiff}
+                isTransferBalanced={dashboardMetrics.isTransferBalanced}
                 transferCount={dashboardMetrics.transferCount}
                 selectedMonth={selectedMonth}
                 onMonthChange={setSelectedMonth}
@@ -845,6 +963,7 @@ export function App() {
             <section className="max-w-2xl mx-auto w-full">
               <TransactionForm
                 banks={banks}
+                banksWithPeriodBalances={banksWithPeriodBalances}
                 forecasts={forecasts}
                 transactions={transactions}
                 onAddTransaction={handleAddTransaction}

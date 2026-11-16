@@ -9,7 +9,9 @@ import {
   Building, 
   Sparkles,
   Calendar,
-  Filter
+  Filter,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 import { formatRupiah, formatDateIndo } from '../utils/formatters';
 import { isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection } from '../utils/transactionHelper';
@@ -26,6 +28,9 @@ export const MetricCards = ({
   totalForecastKeluar = 0,
   proyeksiSaldoAkhir = 0,
   totalTransfer = 0,
+  totalTransferMasuk = 0,
+  transferDiff = 0,
+  isTransferBalanced = true,
   transferCount = 0,
   selectedMonth = 'all',
   onMonthChange,
@@ -115,6 +120,49 @@ export const MetricCards = ({
           </div>
         )}
       </div>
+
+      {/* Transfer Antar Bank / Kas Reconciliation Status Bar */}
+      {transferCount > 0 && (
+        <div className={`px-4 sm:px-5 py-3 rounded-2xl border flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs transition-all ${
+          isTransferBalanced 
+            ? 'bg-indigo-50/70 border-indigo-200/90 text-indigo-950' 
+            : 'bg-amber-50 border-amber-300 text-amber-950'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+              isTransferBalanced ? 'bg-indigo-600 text-white shadow-xs' : 'bg-amber-500 text-white shadow-xs'
+            }`}>
+              <ArrowLeftRight className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-slate-800">Mutasi Transfer Antar Akun:</span>
+                <span className="font-mono-num font-black text-indigo-700">{formatRupiah(totalTransfer)}</span>
+                <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded-full">
+                  {transferCount} Transaksi Transfer Keluar
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Pemindahan dana internal tidak memengaruhi total omset operasional masuk atau beban operasional keluar.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isTransferBalanced ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs shadow-2xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>✓ Mutasi Seimbang (Keluar = Masuk)</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-200 text-amber-950 border border-amber-400 font-black text-xs shadow-2xs">
+                <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>⚠️ Selisih Mutasi: {formatRupiah(Math.abs(transferDiff))} ({transferDiff > 0 ? 'Transfer Masuk Kurang' : 'Transfer Keluar Kurang'})</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 4 Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

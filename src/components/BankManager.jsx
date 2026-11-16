@@ -104,6 +104,7 @@ export const BankManager = ({
   const [transferFromId, setTransferFromId] = useState('');
   const [transferToId, setTransferToId] = useState('');
   const [transferNominalDisplay, setTransferNominalDisplay] = useState('');
+  const [transferFeeDisplay, setTransferFeeDisplay] = useState('');
   const [transferDate, setTransferDate] = useState(new Date().toISOString().split('T')[0]);
   const [transferNote, setTransferNote] = useState('');
   const [transferError, setTransferError] = useState('');
@@ -548,12 +549,13 @@ export const BankManager = ({
     setTransferFromId(banks[0]?.id || '');
     setTransferToId(banks[1]?.id || '');
     setTransferNominalDisplay('');
+    setTransferFeeDisplay('');
     setTransferNote('');
     setTransferError('');
     setIsTransferModalOpen(true);
   };
 
-  // Submit Inter-account Transfer (creates 2 balanced transactions)
+  // Submit Inter-account Transfer (creates balanced transactions with pair linkage & optional fee)
   const handleTransferSubmit = (e) => {
     e.preventDefault();
     if (isViewer) return;
@@ -583,15 +585,37 @@ export const BankManager = ({
       return;
     }
 
+    const fee = parseRupiahInput(transferFeeDisplay) || 0;
+    const totalDibutuhkan = nominal + fee;
+    const currentFromBalance = selectedFromAccount?.saldoAkhir ?? 0;
+
+    // Poin 3: Peringatan Saldo Tidak Cukup
+    if (totalDibutuhkan > currentFromBalance) {
+      const confirmMsg = 
+        `⚠️ PERINGATAN SALDO REKENING TIDAK CUKUP!\n\n` +
+        `• Rekening Asal: ${fromAcc.name}\n` +
+        `• Saldo Saat Ini: ${formatRupiah(currentFromBalance)}\n` +
+        `• Total Transfer Keluar: ${formatRupiah(totalDibutuhkan)}${fee > 0 ? ` (Pokok: ${formatRupiah(nominal)} + Biaya Admin: ${formatRupiah(fee)})` : ''}\n` +
+        `• Proyeksi Saldo Setelah Transfer: ${formatRupiah(currentFromBalance - totalDibutuhkan)} (MINUS)\n\n` +
+        `Melanjutkan transaksi ini akan menyebabkan saldo rekening ${fromAcc.name} menjadi minus.\n\n` +
+        `Apakah Anda yakin ingin tetap memproses transfer ini?`;
+      
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+
     const tgl = transferDate || new Date().toISOString().split('T')[0];
     const cleanNote = transferNote.trim() ? ` (${transferNote.trim()})` : '';
     const now = Date.now();
+    const pairId = `trf-pair-${now}-${Math.random().toString(36).substring(2, 7)}`;
 
-    // 1. Pengeluaran dari Akun Asal (Transfer Keluar - Dicatatkan Tersendiri)
+    // 1. Pengeluaran dari Akun Asal (Transfer Keluar - Dicatatkan Berpasangan)
     const txOut = {
       id: `tx-trf-out-${now}`,
       bankId: transferFromId,
       targetBankId: transferToId,
+      transferPairId: pairId,
       tipe: 'transfer',
       transferDirection: 'out',
       isTransfer: true,
@@ -602,11 +626,12 @@ export const BankManager = ({
       createdAt: new Date(now).toISOString()
     };
 
-    // 2. Pemasukan ke Akun Tujuan (Transfer Masuk - Dicatatkan Tersendiri)
+    // 2. Pemasukan ke Akun Tujuan (Transfer Masuk - Dicatatkan Berpasangan)
     const txIn = {
       id: `tx-trf-in-${now + 1}`,
       bankId: transferToId,
       sourceBankId: transferFromId,
+      transferPairId: pairId,
       tipe: 'transfer',
       transferDirection: 'in',
       isTransfer: true,
@@ -617,14 +642,38 @@ export const BankManager = ({
       createdAt: new Date(now + 1).toISOString()
     };
 
+    const txListToAdd = [txOut, txIn];
+
+    // Poin 2: Jika ada biaya admin, catat sebagai pengeluaran operasional
+    if (fee > 0) {
+      const txFee = {
+        id: `tx-trf-fee-${now + 2}`,
+        bankId: transferFromId,
+        transferPairId: pairId,
+        isTransferFee: true,
+        tipe: 'pengeluaran',
+        planId: 'unplanned',
+        deskripsi: `Biaya Admin Transfer ke [${toAcc.name}]${cleanNote}`,
+        nominal: fee,
+        tanggal: tgl,
+        createdAt: new Date(now + 2).toISOString()
+      };
+      txListToAdd.push(txFee);
+    }
+
     if (onAddTransactions) {
-      onAddTransactions([txOut, txIn]);
+      onAddTransactions(txListToAdd);
+    } else if (onAddTransaction) {
+      txListToAdd.forEach(tx => onAddTransaction(tx));
     }
 
     setIsTransferModalOpen(false);
     setTransferNominalDisplay('');
+    setTransferFeeDisplay('');
     setTransferNote('');
-    alert(`Transfer Berhasil Dicatat!\n\n• Sumber: ${fromAcc.name} (-${formatRupiah(nominal)})\n• Tujuan: ${toAcc.name} (+${formatRupiah(nominal)})\n• Tanggal: ${formatDateIndo(tgl)}`);
+
+    const feeNotice = fee > 0 ? `\n• Biaya Admin Bank: ${formatRupiah(fee)} (Didebet dari ${fromAcc.name})` : '';
+    alert(`Transfer Berhasil Dicatat!\n\n• Sumber: ${fromAcc.name} (-${formatRupiah(nominal)})\n• Tujuan: ${toAcc.name} (+${formatRupiah(nominal)})${feeNotice}\n• Tanggal: ${formatDateIndo(tgl)}`);
   };
 
   const selectedFromAccount = accountsWithBalances.find(a => a.id === transferFromId);
@@ -1234,6 +1283,73 @@ export const BankManager = ({
                 </div>
               </div>
 
+              {/* Biaya Admin Bank (Opsional) */}
+              <div className="p-3 bg-indigo-50/70 border border-indigo-200/90 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-indigo-950">
+                    Biaya Admin Bank (Opsional)
+                  </label>
+                  <span className="text-[10px] text-indigo-700 font-semibold">Didebet dari {selectedFromAccount?.name || 'Rekening Pengirim'}</span>
+                </div>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-500">Rp</span>
+                  <input
+                    type="text"
+                    value={transferFeeDisplay}
+                    onChange={(e) => setTransferFeeDisplay(formatNominalInput(e.target.value))}
+                    placeholder="0 (Gratis / Tanpa Biaya)"
+                    className="w-full pl-10 pr-3 py-2 text-sm font-mono-num font-bold bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="text-[10px] text-slate-500 font-semibold mr-1">Pilihan Cepat:</span>
+                  <button
+                    type="button"
+                    onClick={() => setTransferFeeDisplay('')}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                      !transferFeeDisplay || transferFeeDisplay === '0'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Rp 0
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransferFeeDisplay('2.500')}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                      transferFeeDisplay === '2.500'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Rp 2.500 (BI-FAST)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransferFeeDisplay('6.500')}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                      transferFeeDisplay === '6.500'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Rp 6.500 (Online)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransferFeeDisplay('25.000')}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                      transferFeeDisplay === '25.000'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Rp 25.000 (RTGS)
+                  </button>
+                </div>
+              </div>
+
               {/* Keterangan */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
@@ -1255,11 +1371,16 @@ export const BankManager = ({
                   <span>Dampak Jurnal Mutasi:</span>
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  • 1x Transaksi Pengeluaran tercatat di <b>{selectedFromAccount?.name || 'Akun Asal'}</b>
+                  • 1x Transfer Keluar: <b>{selectedFromAccount?.name || 'Akun Asal'}</b> (-{formatRupiah(parseRupiahInput(transferNominalDisplay) || 0)})
                 </p>
                 <p className="text-[11px] text-slate-600">
-                  • 1x Transaksi Pemasukan tercatat di <b>{selectedToAccount?.name || 'Akun Tujuan'}</b>
+                  • 1x Transfer Masuk: <b>{selectedToAccount?.name || 'Akun Tujuan'}</b> (+{formatRupiah(parseRupiahInput(transferNominalDisplay) || 0)})
                 </p>
+                {(parseRupiahInput(transferFeeDisplay) || 0) > 0 && (
+                  <p className="text-[11px] text-indigo-700 font-semibold">
+                    • 1x Biaya Admin: <b>{selectedFromAccount?.name || 'Akun Asal'}</b> (-{formatRupiah(parseRupiahInput(transferFeeDisplay) || 0)}) sebagai beban operasional resmi
+                  </p>
+                )}
               </div>
 
               {/* Modal Buttons */}

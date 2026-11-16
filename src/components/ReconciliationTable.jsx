@@ -380,19 +380,48 @@ export const ReconciliationTable = ({
 
   const handleTriggerDeleteTransaction = (e, tx, isAnomali = false) => {
     e.stopPropagation();
+    const isTrf = isTransferTransaction(tx);
+    let partner = null;
+    if (isTrf) {
+      if (tx.transferPairId) {
+        partner = transactions.find(t => t.id !== tx.id && t.transferPairId === tx.transferPairId && !t.isTransferFee);
+      } else {
+        const dir = getTransferDirection(tx);
+        const oppositeDir = dir === 'out' ? 'in' : 'out';
+        partner = transactions.find(t => 
+          t.id !== tx.id &&
+          isTransferTransaction(t) &&
+          getTransferDirection(t) === oppositeDir &&
+          t.tanggal === tx.tanggal &&
+          Math.abs(Number(t.nominal || 0) - Number(tx.nominal || 0)) < 0.01
+        );
+      }
+    }
+
+    const items = [{
+      name: tx.deskripsi || 'Mutasi Kas',
+      detail: `${getBankName(tx.bankId)} • ${formatRupiah(tx.nominal)} • ${formatDateIndo(tx.tanggal)}`
+    }];
+
+    if (partner) {
+      items.push({
+        name: `[Pasangan Transfer Terikat] ${partner.deskripsi || 'Mutasi Kas'}`,
+        detail: `${getBankName(partner.bankId)} • ${formatRupiah(partner.nominal)} • ${formatDateIndo(partner.tanggal)}`
+      });
+    }
+
     setDeleteModalState({
       isOpen: true,
       isBatch: false,
       type: 'transaction',
       item: tx,
-      targetIds: [tx.id],
-      items: [{
-        name: tx.deskripsi || 'Mutasi Kas',
-        detail: `${getBankName(tx.bankId)} • ${formatRupiah(tx.nominal)} • ${formatDateIndo(tx.tanggal)}`
-      }],
-      title: isAnomali ? 'Validasi Hapus Transaksi Anomali' : 'Validasi Hapus Transaksi Realisasi',
-      itemType: 'Transaksi',
-      warningText: 'Tindakan ini akan menghapus data transaksi aktual secara permanen dari sistem dan Cloud Firestore.'
+      targetIds: partner ? [tx.id, partner.id] : [tx.id],
+      items,
+      title: isTrf ? 'Validasi Hapus Mutasi Transfer Antar Akun' : (isAnomali ? 'Validasi Hapus Transaksi Anomali' : 'Validasi Hapus Transaksi Realisasi'),
+      itemType: isTrf ? 'Transfer (2 Arah Terikat)' : 'Transaksi',
+      warningText: isTrf
+        ? 'Menghapus mutasi transfer ini akan otomatis menghapus mutasi pasangannya di rekening terkait untuk menjaga keseimbangan kas.'
+        : 'Tindakan ini akan menghapus data transaksi aktual secara permanen dari sistem dan Cloud Firestore.'
     });
   };
 
@@ -488,7 +517,8 @@ export const ReconciliationTable = ({
         setSelectedRowIds(prev => prev.filter(x => x !== deleteModalState.item.id));
       } else if (deleteModalState.type === 'transaction' && deleteModalState.item) {
         onDeleteTransaction(deleteModalState.item.id);
-        setSelectedRowIds(prev => prev.filter(x => x !== deleteModalState.item.id));
+        const removedIds = new Set(deleteModalState.targetIds);
+        setSelectedRowIds(prev => prev.filter(x => !removedIds.has(x)));
       }
     }
 

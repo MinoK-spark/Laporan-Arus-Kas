@@ -5,6 +5,7 @@
 
 export const isTransferTransaction = (t) => {
   if (!t) return false;
+  if (t.isTransferFee === true) return false;
   if (t.isTransfer === true || t.tipe === 'transfer' || t.tipe === 'transfer_masuk' || t.tipe === 'transfer_keluar') {
     return true;
   }

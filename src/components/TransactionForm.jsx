@@ -4,7 +4,7 @@ import { Receipt, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, AlertTriangle, Ch
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
 import { downloadExcel, parseExcelFile, getRowValue, normalizeExcelDate } from '../utils/excelHelper';
 
-export const TransactionForm = ({ banks, forecasts, transactions, onAddTransaction, onAddTransactions, currentUser, onSwitchAccount }) => {
+export const TransactionForm = ({ banks, banksWithPeriodBalances = [], forecasts, transactions, onAddTransaction, onAddTransactions, currentUser, onSwitchAccount }) => {
   const isViewer = currentUser?.role === 'viewer';
 
   const [bankId, setBankId] = useState(banks[0]?.id || '');
@@ -18,6 +18,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
   
   const [deskripsi, setDeskripsi] = useState('');
   const [nominalDisplay, setNominalDisplay] = useState('');
+  const [biayaAdminDisplay, setBiayaAdminDisplay] = useState('');
   const [tanggal, setTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [buktiRef, setBuktiRef] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
@@ -222,7 +223,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
     }
     const normDate = (d) => (d ? String(d).trim().substring(0, 10) : '');
 
-    // Khusus Mutasi Pemindahan Dana Antar Akun (Internal Transfer - Dicatatkan Tersendiri)
+    // Khusus Mutasi Pemindahan Dana Antar Akun (Internal Transfer - Dicatatkan Berpasangan Terikat)
     if (tipe === 'transfer') {
       if (!transferToBankId || transferToBankId === targetBankId) {
         alert('Silakan pilih rekening tujuan transfer yang berbeda dari rekening asal.');
@@ -230,13 +231,48 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
       }
       const fromAcc = banks.find(b => b.id === targetBankId);
       const toAcc = banks.find(b => b.id === transferToBankId);
+      if (!fromAcc || !toAcc) {
+        alert('Akun bank asal atau tujuan tidak ditemukan.');
+        return;
+      }
+
+      const biayaAdmin = parseRupiahInput(biayaAdminDisplay) || 0;
+      const totalDibutuhkan = num + biayaAdmin;
+
+      // Poin 3: Hitung saldo riil akun asal & validasi saldo tidak cukup
+      const fromBankPeriod = banksWithPeriodBalances.find(b => b.id === targetBankId);
+      let currentFromBalance = fromBankPeriod?.saldoAkhir;
+      if (currentFromBalance === undefined) {
+        const masterSaldoAwal = Number(fromAcc.saldoAwal) || 0;
+        const bIn = (transactions || []).filter(t => t.bankId === fromAcc.id && (isOperationalIncome(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'in'))).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        const bOut = (transactions || []).filter(t => t.bankId === fromAcc.id && (isOperationalExpense(t) || (isTransferTransaction(t) && getTransferDirection(t) === 'out'))).reduce((s, t) => s + (Number(t.nominal) || 0), 0);
+        currentFromBalance = masterSaldoAwal + bIn - bOut;
+      }
+
+      if (totalDibutuhkan > currentFromBalance) {
+        const confirmMsg = 
+          `⚠️ PERINGATAN SALDO REKENING TIDAK CUKUP!\n\n` +
+          `• Rekening Asal: ${fromAcc.name}\n` +
+          `• Saldo Saat Ini: ${formatRupiah(currentFromBalance)}\n` +
+          `• Total Transfer: ${formatRupiah(totalDibutuhkan)}${biayaAdmin > 0 ? ` (Pokok: ${formatRupiah(num)} + Biaya Admin: ${formatRupiah(biayaAdmin)})` : ''}\n` +
+          `• Proyeksi Saldo Setelah Transfer: ${formatRupiah(currentFromBalance - totalDibutuhkan)} (MINUS)\n\n` +
+          `Melanjutkan transaksi ini akan menyebabkan saldo rekening ${fromAcc.name} menjadi minus.\n\n` +
+          `Apakah Anda yakin ingin tetap memproses transfer ini?`;
+        
+        if (!window.confirm(confirmMsg)) {
+          return;
+        }
+      }
+
       const cleanNote = cleanDeskStr ? ` (${cleanDeskStr})` : '';
       const now = Date.now();
+      const pairId = `trf-pair-${now}-${Math.random().toString(36).substring(2, 7)}`;
 
       const txOut = {
         id: `tx-trf-out-${now}`,
         bankId: targetBankId,
         targetBankId: transferToBankId,
+        transferPairId: pairId,
         tipe: 'transfer',
         transferDirection: 'out',
         isTransfer: true,
@@ -252,6 +288,7 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
         id: `tx-trf-in-${now + 1}`,
         bankId: transferToBankId,
         sourceBankId: targetBankId,
+        transferPairId: pairId,
         tipe: 'transfer',
         transferDirection: 'in',
         isTransfer: true,
@@ -263,19 +300,41 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
         buktiRef: buktiRef.trim()
       };
 
+      const txListToAdd = [txOut, txIn];
+
+      // Poin 2: Jika ada biaya admin bank, buat transaksi pengeluaran operasional
+      if (biayaAdmin > 0) {
+        const txFee = {
+          id: `tx-trf-fee-${now + 2}`,
+          bankId: targetBankId,
+          transferPairId: pairId,
+          isTransferFee: true,
+          tipe: 'pengeluaran',
+          planId: 'unplanned',
+          deskripsi: `Biaya Admin Transfer ke [${toAcc?.name || 'Tujuan'}]${cleanNote}`,
+          nominal: biayaAdmin,
+          tanggal,
+          createdAt: new Date(now + 2).toISOString(),
+          buktiRef: buktiRef ? `Admin: ${buktiRef.trim()}` : ''
+        };
+        txListToAdd.push(txFee);
+      }
+
       if (onAddTransactions) {
-        onAddTransactions([txOut, txIn]);
+        onAddTransactions(txListToAdd);
       } else if (onAddTransaction) {
-        onAddTransaction(txOut);
-        onAddTransaction(txIn);
+        txListToAdd.forEach(tx => onAddTransaction(tx));
       }
 
       setDeskripsi('');
       setNominalDisplay('');
+      setBiayaAdminDisplay('');
       setBuktiRef('');
       setIsSuccess(true);
       setTimeout(() => setIsSuccess(false), 3000);
-      alert(`Transfer Antar Akun Berhasil Dicatat!\n\n• Sumber: ${fromAcc?.name} (-${formatRupiah(num)})\n• Tujuan: ${toAcc?.name} (+${formatRupiah(num)})\n• Tanggal: ${tanggal}\n\nCatatan: Dicatatkan tersendiri & tidak memengaruhi omset masuk atau beban keluar operasional.`);
+
+      const feeNotice = biayaAdmin > 0 ? `\n• Biaya Admin Bank: ${formatRupiah(biayaAdmin)} (Didebet dari ${fromAcc?.name})` : '';
+      alert(`Transfer Antar Akun Berhasil Dicatat!\n\n• Sumber: ${fromAcc?.name} (-${formatRupiah(num)})\n• Tujuan: ${toAcc?.name} (+${formatRupiah(num)})${feeNotice}\n• Tanggal: ${tanggal}\n\nCatatan: Dicatatkan terikat berpasangan & tidak memengaruhi omset masuk atau beban keluar operasional.`);
       return;
     }
 
@@ -569,6 +628,75 @@ export const TransactionForm = ({ banks, forecasts, transactions, onAddTransacti
               />
             </div>
           </div>
+
+          {/* Biaya Admin Bank (Khusus Tipe Transfer Antar Bank) */}
+          {tipe === 'transfer' && (
+            <div className="p-3 bg-indigo-50/70 border border-indigo-200/90 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-indigo-950">
+                  Biaya Admin Bank (Opsional)
+                </label>
+                <span className="text-[10px] text-indigo-700 font-semibold">Didebet dari Rekening Pengirim</span>
+              </div>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-xs font-bold text-slate-500">Rp</span>
+                <input
+                  type="text"
+                  value={biayaAdminDisplay}
+                  onChange={(e) => setBiayaAdminDisplay(formatNominalInput(e.target.value))}
+                  placeholder="0 (Gratis / Tanpa Biaya)"
+                  className="w-full pl-10 pr-3 py-2 text-sm font-mono-num font-bold bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[10px] text-slate-500 font-semibold mr-1">Pilihan Cepat:</span>
+                <button
+                  type="button"
+                  onClick={() => setBiayaAdminDisplay('')}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                    !biayaAdminDisplay || biayaAdminDisplay === '0'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Rp 0
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBiayaAdminDisplay('2.500')}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                    biayaAdminDisplay === '2.500'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Rp 2.500 (BI-FAST)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBiayaAdminDisplay('6.500')}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                    biayaAdminDisplay === '6.500'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Rp 6.500 (Online)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBiayaAdminDisplay('25.000')}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                    biayaAdminDisplay === '25.000'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  Rp 25.000 (RTGS)
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="pt-4">

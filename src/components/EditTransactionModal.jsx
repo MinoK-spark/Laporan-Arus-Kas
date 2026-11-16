@@ -75,7 +75,11 @@ export function EditTransactionModal({
       nominal: parsedNom,
       planId: planId || 'unplanned',
       isTransfer: Boolean(transaction.isTransfer),
+      transferPairId: transaction.transferPairId || null,
       transferDirection: transaction.transferDirection || null,
+      targetBankId: transaction.targetBankId || null,
+      sourceBankId: transaction.sourceBankId || null,
+      isTransferFee: Boolean(transaction.isTransferFee),
       createdAt: transaction.createdAt || new Date().toISOString()
     };
 
@@ -142,9 +146,14 @@ export function EditTransactionModal({
               Jenis Mutasi
             </label>
             {transaction.isTransfer ? (
-              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-2 text-indigo-950 text-xs font-bold">
-                <ArrowLeftRight className="w-4 h-4 text-indigo-600" />
-                <span>Transaksi Internal: {transaction.transferDirection === 'out' ? 'Transfer Keluar' : 'Transfer Masuk'}</span>
+              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-1 text-xs">
+                <div className="flex items-center gap-2 text-indigo-950 font-bold">
+                  <ArrowLeftRight className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>Transaksi Internal: {transaction.transferDirection === 'out' ? 'Transfer Keluar' : 'Transfer Masuk'}</span>
+                </div>
+                <p className="text-[11px] text-indigo-700 leading-relaxed">
+                  Perubahan nominal dan tanggal pada transaksi ini akan <strong>otomatis disinkronkan</strong> ke mutasi rekening pasangannya agar neraca kas tetap seimbang.
+                </p>
               </div>
             ) : null}
             {!transaction.isTransfer && (
