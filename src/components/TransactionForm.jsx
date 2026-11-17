@@ -1,4 +1,4 @@
-import { isKasAccount } from '../utils/transactionHelper';
+import { isKasAccount, isOperationalIncome, isOperationalExpense, isTransferTransaction, getTransferDirection } from '../utils/transactionHelper';
 import React, { useState, useEffect, useRef } from 'react';
 import { Receipt, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, AlertTriangle, CheckCircle2, Send, Info, Upload, Lock, FileSpreadsheet, ArrowRight } from 'lucide-react';
 import { formatRupiah, formatNominalInput, parseRupiahInput } from '../utils/formatters';
@@ -22,6 +22,7 @@ export const TransactionForm = ({ banks, banksWithPeriodBalances = [], forecasts
   const [tanggal, setTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [buktiRef, setBuktiRef] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const fileInputRef = useRef(null);
 
   // Auto select first bank if available and empty
@@ -209,16 +210,21 @@ export const TransactionForm = ({ banks, banksWithPeriodBalances = [], forecasts
   const handleSubmit = (e) => {
     e.preventDefault();
     if (isViewer) return;
+    setErrorMsg('');
     const num = parseRupiahInput(nominalDisplay);
+    if (!deskripsi.trim()) {
+      setErrorMsg('⚠ Deskripsi transaksi tidak boleh kosong.');
+      return;
+    }
     if (num <= 0) {
-      alert('Nominal harus lebih dari 0');
+      setErrorMsg('⚠ Nominal harus lebih dari 0. Silakan isi nominal transaksi.');
       return;
     }
 
     const cleanDeskStr = deskripsi.trim();
     const targetBankId = bankId || banks[0]?.id;
     if (!targetBankId) {
-      alert('Belum ada rekening bank/kas terdaftar. Silakan tambahkan rekening bank atau kas operasional terlebih dahulu di menu Rekening Bank & Kas.');
+      setErrorMsg('⚠ Belum ada rekening bank/kas terdaftar. Silakan tambahkan rekening bank atau kas operasional terlebih dahulu di menu Rekening Bank & Kas.');
       return;
     }
     const normDate = (d) => (d ? String(d).trim().substring(0, 10) : '');
@@ -226,13 +232,13 @@ export const TransactionForm = ({ banks, banksWithPeriodBalances = [], forecasts
     // Khusus Mutasi Pemindahan Dana Antar Akun (Internal Transfer - Dicatatkan Berpasangan Terikat)
     if (tipe === 'transfer') {
       if (!transferToBankId || transferToBankId === targetBankId) {
-        alert('Silakan pilih rekening tujuan transfer yang berbeda dari rekening asal.');
+        setErrorMsg('⚠ Silakan pilih rekening tujuan transfer yang berbeda dari rekening asal.');
         return;
       }
       const fromAcc = banks.find(b => b.id === targetBankId);
       const toAcc = banks.find(b => b.id === transferToBankId);
       if (!fromAcc || !toAcc) {
-        alert('Akun bank asal atau tujuan tidak ditemukan.');
+        setErrorMsg('⚠ Akun bank asal atau tujuan tidak ditemukan.');
         return;
       }
 
@@ -364,10 +370,15 @@ export const TransactionForm = ({ banks, banksWithPeriodBalances = [], forecasts
       duplicateReason: isDuplicate ? 'Terdeteksi kesamaan tanggal, rekening, deskripsi, dan nominal dengan data yang ada' : null
     };
 
+    if (typeof onAddTransaction !== 'function') {
+      setErrorMsg('⚠ Fungsi simpan transaksi tidak tersedia. Hubungi administrator.');
+      return;
+    }
     onAddTransaction(newTx);
     setDeskripsi('');
     setNominalDisplay('');
     setBuktiRef('');
+    setErrorMsg('');
     setIsSuccess(true);
     setTimeout(() => setIsSuccess(false), 3000);
   };
@@ -703,6 +714,12 @@ export const TransactionForm = ({ banks, banksWithPeriodBalances = [], forecasts
           {isSuccess && (
             <div className="mb-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs font-semibold text-emerald-800">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Mutasi berhasil!
+            </div>
+          )}
+          {errorMsg && (
+            <div className="mb-2 p-2.5 bg-rose-50 border border-rose-300 rounded-xl flex items-start gap-2 text-xs font-semibold text-rose-800">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
             </div>
           )}
           <button
